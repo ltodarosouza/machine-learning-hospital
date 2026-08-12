@@ -57,6 +57,18 @@ python src/data_ingestion/ingestao_epidemiologia.py
 
 Saída: `data/external/epidemiologia.csv` — colunas `data`, `casos_dengue_regiao`. Commitado no repositório pelo mesmo motivo dos outros dados externos.
 
-### Consolidação (Issue #7) — pendente
+### `consolidar_dataset.py` (Issue #7) — pronto
 
-Une as saídas acima em `data/processed/consumo_medicamentos.csv`, seguindo o contrato em [`docs/arquitetura/CONTRATOS.md`](../../docs/arquitetura/CONTRATOS.md).
+Une as saídas de todas as Issues acima. Roda por último, depois de #3, #4, #5 e #6 terem gerado seus arquivos.
+
+```bash
+python src/data_ingestion/consolidar_dataset.py
+```
+
+Gera:
+
+- `data/external/externos_diarios.csv` — contrato 1.2 (clima + epidemiologia + calendário, unidos por `data`)
+- `data/processed/consumo_medicamentos.csv` — **o "dataset de modelagem"**: consumo (1.1) + externos (1.2) unidos por `data`. **É este arquivo que as Issues #8 a #13 (features e modelagem) devem consumir**, não os arquivos individuais.
+- `data/processed/sample_consumo_medicamentos.csv` — amostra pequena (90 linhas, 3 medicamentos × 30 dias) para quem for começar features/modelo/dashboard sem rodar o pipeline inteiro.
+
+Todos commitados (mesma lógica dos outros arquivos de dados: sintético/público, pequeno, reprodutível).
