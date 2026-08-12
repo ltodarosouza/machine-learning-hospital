@@ -132,11 +132,23 @@ teoricamente ótimo já é a própria média-base, que uma média móvel simples
 consegue aproximar quase tão bem quanto um modelo de ML. Mais tuning não
 resolve isso; é uma limitação estrutural do dado, não do modelo. Quatro
 issues abrem o caminho para corrigir isso, mexendo no gerador (não no
-modelo): **#58** (estados latentes de surto com duração), **#59** (corrige
-causalidade invertida de `atendimentos_ps`), **#60** (separa demanda
-latente de dispensação observada em rupturas) e **#61** (classes de
-persistência por medicamento, ruído autocorrelacionado). Depois delas, vale
-reabrir esta comparação de algoritmos/tuning para medir o efeito combinado.
+modelo): **#58** (estados latentes de surto com duração — ✅ feita,
+`gerar_estado_surto`/`fator_surto` em `gerar_dataset_sintetico.py`, episódios
+de ~14 dias em média em vez de ruído por dia), **#59** (corrige causalidade
+invertida de `atendimentos_ps`), **#60** (separa demanda latente de
+dispensação observada em rupturas) e **#61** (classes de persistência por
+medicamento, ruído autocorrelacionado).
+
+**Atenção:** a Issue #58 já foi feita e o dataset já foi regenerado com ela,
+mas **a comparação de algoritmos/tuning acima ainda não foi re-executada**
+com o dataset novo (era explicitamente fora do escopo da #58, para não
+misturar as duas coisas). Os números de MAE/MAPE deste README e de
+`docs/arquitetura/RESULTADOS_MODELAGEM.md` ainda refletem o dataset **sem**
+os estados de surto — podem mudar (para melhor, é a expectativa, mas não
+está medido ainda) na próxima vez que alguém rodar
+`scripts/comparar_algoritmos_modelo.py` e `src/evaluation/comparar_modelos.py`.
+Ficam pendentes também as issues #59-#61, e depois de todas vale reabrir essa
+comparação para medir o efeito combinado.
 
 **Tamanho do dataset, para contexto:** 1.461 dias (4 anos) × 20 medicamentos =
 29.220 linhas brutas; depois do "aquecimento" das médias móveis de 30 dias,
