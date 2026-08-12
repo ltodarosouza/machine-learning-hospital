@@ -32,6 +32,8 @@ COLUNAS_PREVISOES = {"medicamento_id", "data_previsao", "demanda_prevista"}
 COLUNAS_ESTOQUE_SEGURANCA = {"medicamento_id", "estoque_seguranca"}
 COLUNAS_ESTOQUE = {"medicamento_id", "data", "estoque_disponivel"}
 COLUNAS_PEDIDOS = {"medicamento_id", "quantidade"}
+COLUNAS_REFERENCIA = {"medicamento_id", "prazo_entrega_dias"}
+COLUNAS_LOTES = {"medicamento_id", "quantidade_atual", "data_validade"}
 COLUNAS_SAIDA = [
     "medicamento_id",
     "compra_recomendada",
@@ -46,6 +48,8 @@ def gerar_recomendacoes(
     estoque_atual: pd.DataFrame,
     estoque_seguranca: pd.DataFrame,
     pedidos_pendentes: pd.DataFrame | None = None,
+    medicamentos_referencia: pd.DataFrame | None = None,
+    lotes: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Gera uma recomendacao de compra por medicamento previsto.
 
@@ -62,9 +66,9 @@ def gerar_recomendacoes(
         and "estoque_disponivel" in estoque_seguranca.columns
     ):
         estoque_atual, estoque_seguranca = estoque_seguranca, estoque_atual
-    pedidos_pendentes = (
-        pd.DataFrame() if pedidos_pendentes is None else pedidos_pendentes
-    )
+    pedidos_pendentes = pd.DataFrame() if pedidos_pendentes is None else pedidos_pendentes
+    medicamentos_referencia = pd.DataFrame() if medicamentos_referencia is None else medicamentos_referencia
+    lotes = pd.DataFrame() if lotes is None else lotes
 
     previsoes = previsoes.copy()
     estoque_atual = estoque_atual.copy()
@@ -80,8 +84,14 @@ def gerar_recomendacoes(
     _validar_colunas(estoque_seguranca, COLUNAS_ESTOQUE_SEGURANCA, "estoques_seguranca")
     _validar_colunas(estoque_atual, COLUNAS_ESTOQUE, "estoque_historico")
     _validar_dataframe(pedidos_pendentes, "pedidos_pendentes")
+    _validar_dataframe(medicamentos_referencia, "medicamentos_referencia")
+    _validar_dataframe(lotes, "lotes")
     if not pedidos_pendentes.empty:
         _validar_colunas(pedidos_pendentes, COLUNAS_PEDIDOS, "pedidos_pendentes")
+    if not medicamentos_referencia.empty:
+        _validar_colunas(medicamentos_referencia, COLUNAS_REFERENCIA, "medicamentos_referencia")
+    if not lotes.empty:
+        _validar_colunas(lotes, COLUNAS_LOTES, "lotes")
     if previsoes.empty:
         raise ValueError("previsoes nao pode estar vazio.")
 
@@ -100,12 +110,26 @@ def gerar_recomendacoes(
         if coluna in pedidos_pendentes.columns
     ]
     pedidos = pedidos_pendentes[colunas_pedidos].copy()
+    referencia = (
+        medicamentos_referencia[["medicamento_id", "prazo_entrega_dias"]].copy()
+        if not medicamentos_referencia.empty
+        else pd.DataFrame(columns=["medicamento_id", "prazo_entrega_dias"])
+    )
+    lotes = (
+        lotes[["medicamento_id", "quantidade_atual", "data_validade"]].copy()
+        if not lotes.empty
+        else pd.DataFrame(columns=["medicamento_id", "quantidade_atual", "data_validade"])
+    )
 
     _validar_identificadores(demanda, "previsoes")
     _validar_identificadores(seguranca, "estoques_seguranca")
     _validar_identificadores(estoque, "estoque_historico")
     if not pedidos.empty:
         _validar_identificadores(pedidos, "pedidos_pendentes")
+    if not referencia.empty:
+        _validar_identificadores(referencia, "medicamentos_referencia")
+    if not lotes.empty:
+        _validar_identificadores(lotes, "lotes")
     _converter_numerico_nao_negativo(demanda, "demanda_prevista", "previsoes")
     _converter_numerico_nao_negativo(
         seguranca, "estoque_seguranca", "estoques_seguranca"
@@ -113,6 +137,10 @@ def gerar_recomendacoes(
     _converter_numerico_nao_negativo(estoque, "estoque_disponivel", "estoque_historico")
     if not pedidos.empty:
         _converter_numerico_nao_negativo(pedidos, "quantidade", "pedidos_pendentes")
+    if not referencia.empty:
+        _converter_numerico_nao_negativo(referencia, "prazo_entrega_dias", "medicamentos_referencia")
+    if not lotes.empty:
+        _converter_numerico_nao_negativo(lotes, "quantidade_atual", "lotes")
 
     demanda["data_previsao"] = _converter_datas(
         demanda["data_previsao"], "previsoes.data_previsao"
@@ -121,6 +149,8 @@ def gerar_recomendacoes(
     inicio_horizonte = demanda["data_previsao"].min()
     fim_horizonte = demanda["data_previsao"].max()
     data_referencia = inicio_horizonte - pd.Timedelta(days=1)
+    if not lotes.empty:
+        lotes["data_validade"] = _converter_datas(lotes["data_validade"], "lotes.data_validade")
 
     _rejeitar_duplicatas(demanda, ["medicamento_id", "data_previsao"], "previsoes")
     _validar_horizonte_compartilhado(demanda)
@@ -176,6 +206,18 @@ def gerar_recomendacoes(
         pedidos_total, on="medicamento_id", how="left", validate="one_to_one"
     )
     resultado["pedidos_confirmados"] = resultado["pedidos_confirmados"].fillna(0.0)
+    resultado = resultado.merge(referencia, on="medicamento_id", how="left")
+    resultado["prazo_entrega_dias"] = resultado["prazo_entrega_dias"].fillna(0.0)
+    resultado["demanda_diaria"] = resultado["demanda_prevista"] / len(
+        demanda["data_previsao"].unique()
+    )
+    resultado = resultado.merge(
+        _resumir_lotes_proximos(lotes, data_referencia, resultado),
+        on="medicamento_id", how="left"
+    )
+    resultado[["quantidade_proxima_validade", "dias_ate_validade"]] = resultado[
+        ["quantidade_proxima_validade", "dias_ate_validade"]
+    ].fillna(0.0)
 
     calculo = (
         resultado["demanda_prevista"]
@@ -190,12 +232,8 @@ def gerar_recomendacoes(
     )
     calculo = calculo.mask(np.isclose(calculo, 0.0, rtol=0.0, atol=1e-12), 0.0)
     resultado["compra_recomendada"] = calculo.clip(lower=0.0)
-    resultado["risco_falta"] = resultado["compra_recomendada"].map(
-        _classificar_risco_falta
-    )
-    resultado["risco_vencimento"] = resultado.apply(
-        _classificar_risco_vencimento, axis=1
-    )
+    resultado["risco_falta"] = resultado.apply(_classificar_risco_falta, axis=1)
+    resultado["risco_vencimento"] = resultado.apply(_classificar_risco_vencimento, axis=1)
     resultado["justificativa"] = resultado.apply(_criar_justificativa, axis=1)
     return resultado[COLUNAS_SAIDA].sort_values("medicamento_id").reset_index(drop=True)
 
@@ -315,14 +353,48 @@ def _validar_cobertura(resultado: pd.DataFrame, coluna: str, origem: str) -> Non
         raise ValueError(f"{origem} sem dados para medicamentos previstos: {ausentes}.")
 
 
-def _classificar_risco_falta(compra_recomendada: float) -> str:
-    """Heuristica temporaria ate a Task de classificacao de riscos."""
-    return "alto" if compra_recomendada > 0 else "baixo"
+def _resumir_lotes_proximos(
+    lotes: pd.DataFrame, data_referencia: pd.Timestamp, resultado: pd.DataFrame
+) -> pd.DataFrame:
+    """Soma lotes que vencem até o prazo de entrega de cada medicamento."""
+    if lotes.empty:
+        return pd.DataFrame(columns=["medicamento_id", "quantidade_proxima_validade", "dias_ate_validade"])
+    prazo = resultado.set_index("medicamento_id")["prazo_entrega_dias"]
+    copia = lotes.copy()
+    copia["dias_ate_validade"] = (copia["data_validade"] - data_referencia).dt.days.clip(lower=0)
+    copia["prazo_entrega_dias"] = copia["medicamento_id"].map(prazo).fillna(0)
+    proximos = copia[copia["dias_ate_validade"] <= copia["prazo_entrega_dias"]]
+    return proximos.groupby("medicamento_id", as_index=False).agg(
+        quantidade_proxima_validade=("quantidade_atual", "sum"),
+        dias_ate_validade=("dias_ate_validade", "min"),
+    )
 
 
-def _classificar_risco_vencimento(_: pd.Series) -> str:
-    """Placeholder contratual; sem lotes nao ha avaliacao real de vencimento."""
+def _classificar_risco_falta(linha: pd.Series) -> str:
+    """Alto: cobertura até o lead time; médio: até 1,5x; baixo: acima disso."""
+    demanda_diaria = linha["demanda_diaria"]
+    if demanda_diaria <= 0:
+        return "baixo"
+    cobertura_dias = linha["estoque_disponivel"] / demanda_diaria
+    prazo = linha["prazo_entrega_dias"]
+    if prazo <= 0:
+        return "alto" if linha["compra_recomendada"] > 0 else "baixo"
+    if cobertura_dias <= prazo:
+        return "alto"
+    if cobertura_dias <= prazo * 1.5:
+        return "médio"
     return "baixo"
+
+
+def _classificar_risco_vencimento(linha: pd.Series) -> str:
+    """Compara lote próximo do vencimento ao consumo possível antes dele."""
+    proximo = linha["quantidade_proxima_validade"]
+    if proximo <= 0:
+        return "baixo"
+    consumo_ate_validade = linha["demanda_diaria"] * linha["dias_ate_validade"]
+    if proximo > consumo_ate_validade:
+        return "alto"
+    return "médio"
 
 
 def _formatar_quantidade(valor: float) -> str:
@@ -335,10 +407,19 @@ def _criar_justificativa(linha: pd.Series) -> str:
     disponivel = _formatar_quantidade(linha["estoque_disponivel"])
     pedidos = _formatar_quantidade(linha["pedidos_confirmados"])
     compra = _formatar_quantidade(linha["compra_recomendada"])
-    return (
+    cobertura = linha["estoque_disponivel"] / linha["demanda_diaria"] if linha["demanda_diaria"] > 0 else 0
+    texto = (
         f"Comprar {compra} unidades. Demanda prevista para o horizonte: {demanda} unidades; "
-        f"estoque de seguranca: "
-        f"{seguranca}; estoque disponivel mais recente: {disponivel}; pedidos confirmados: "
-        f"{pedidos}. Quantidade recomendada para compra: {compra} unidades. "
-        "Risco de vencimento ainda nao avaliado: requer dados de lotes e validade."
+        f"estoque de seguranca: {seguranca}; estoque disponivel mais recente: {disponivel}; "
+        f"pedidos confirmados: {pedidos}. Risco de falta {linha['risco_falta']}: "
+        f"estoque cobre {cobertura:.1f} dias para prazo de entrega de {linha['prazo_entrega_dias']:g} dias. "
     )
+    if linha["quantidade_proxima_validade"] > 0:
+        texto += (
+            f"Risco de vencimento {linha['risco_vencimento']}: "
+            f"{linha['quantidade_proxima_validade']:g} unidades vencem em até "
+            f"{linha['dias_ate_validade']:g} dias."
+        )
+    else:
+        texto += "Risco de vencimento baixo: não há lotes com validade próxima ao prazo de entrega."
+    return texto
