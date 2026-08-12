@@ -38,6 +38,8 @@ data/external/*
 !data/processed/medicamentos_ref.csv
 !data/processed/lotes.csv
 !data/processed/pedidos_pendentes.csv
+!data/external/externos_diarios.csv
+!data/processed/consumo_medicamentos.csv
 
 # Modelos treinados (pesados, não versionar binário)
 *.pkl
