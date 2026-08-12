@@ -41,10 +41,10 @@ def simular_impacto(
     if fator_seguranca < 0:
         raise ValueError("fator_seguranca deve ser não negativo.")
 
-    previsao = previsoes.copy()
+    previsao = previsoes[["medicamento_id", "data_previsao", "demanda_prevista"]].copy()
     previsao["data_previsao"] = pd.to_datetime(previsao["data_previsao"])
     previsao["demanda_prevista"] = pd.to_numeric(previsao["demanda_prevista"])
-    real = consumo_real.copy()
+    real = consumo_real[["medicamento_id", "data", "consumo_unidades"]].copy()
     real["data"] = pd.to_datetime(real["data"])
     real["consumo_unidades"] = pd.to_numeric(real["consumo_unidades"])
     referencia = medicamentos_ref[list(COLUNAS_REFERENCIA)].copy()
