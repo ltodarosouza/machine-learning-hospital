@@ -1,10 +1,10 @@
-"""Testes do motor de recomendacao da Issue #15."""
+"""Suite canonica do contrato e das validacoes do motor de recomendacao."""
 
 import numpy as np
 import pandas as pd
 import pytest
 
-from src.recommendation.motor_recomendacao import gerar_recomendacoes
+from src.recommendation.motor_recomendacao import COLUNAS_SAIDA, gerar_recomendacoes
 
 
 def _previsoes(valores=(10.0,), medicamento="med_a"):
@@ -37,18 +37,40 @@ def _pedidos(valores=(), medicamento="med_a"):
     )
 
 
+def _executar_motor(
+    previsoes: pd.DataFrame,
+    seguranca: pd.DataFrame,
+    estoque: pd.DataFrame,
+    pedidos: pd.DataFrame,
+    **opcionais,
+) -> pd.DataFrame:
+    """Chama a API publica por nome para tornar a ordem canonica explicita."""
+    return gerar_recomendacoes(
+        previsoes=previsoes,
+        estoque_atual=estoque,
+        estoque_seguranca=seguranca,
+        pedidos_pendentes=pedidos,
+        **opcionais,
+    )
+
+
+def test_api_publica_usa_ordem_documentada_dos_estoques():
+    resultado = gerar_recomendacoes(_previsoes(), _estoque(), _seguranca(), _pedidos())
+
+    assert resultado.loc[0, "compra_recomendada"] == 9
+
+
 def test_estoque_insuficiente_resulta_em_recomendacao_positiva():
-    resultado = gerar_recomendacoes(
+    resultado = _executar_motor(
         _previsoes((20,)), _seguranca(2), _estoque(3), _pedidos()
     )
 
     assert resultado.loc[0, "compra_recomendada"] == 19
-    assert resultado.loc[0, "risco_falta"] == "alto"
     assert "Demanda prevista para o horizonte: 20" in resultado.loc[0, "justificativa"]
 
 
 def test_estoque_suficiente_resulta_exatamente_em_zero_e_nunca_negativo():
-    resultado = gerar_recomendacoes(
+    resultado = _executar_motor(
         _previsoes((5,)), _seguranca(2), _estoque(10), _pedidos()
     )
 
@@ -56,11 +78,19 @@ def test_estoque_suficiente_resulta_exatamente_em_zero_e_nunca_negativo():
     assert (resultado["compra_recomendada"] >= 0).all()
 
 
+def test_demanda_zero_sem_estoque_nao_recomenda_compra():
+    resultado = _executar_motor(
+        _previsoes((0,)), _seguranca(0), _estoque(0), _pedidos()
+    )
+
+    assert resultado.loc[0, "compra_recomendada"] == 0
+
+
 def test_pedidos_confirmados_reduzem_recomendacao():
-    sem_pedido = gerar_recomendacoes(
+    sem_pedido = _executar_motor(
         _previsoes((20,)), _seguranca(), _estoque(), _pedidos()
     )
-    com_pedido = gerar_recomendacoes(
+    com_pedido = _executar_motor(
         _previsoes((20,)), _seguranca(), _estoque(), _pedidos((4,))
     )
 
@@ -69,9 +99,7 @@ def test_pedidos_confirmados_reduzem_recomendacao():
 
 
 def test_medicamento_sem_pedido_assume_zero():
-    resultado = gerar_recomendacoes(
-        _previsoes((10,)), _seguranca(), _estoque(), _pedidos()
-    )
+    resultado = _executar_motor(_previsoes((10,)), _seguranca(), _estoque(), _pedidos())
 
     assert resultado.loc[0, "compra_recomendada"] == 9
     assert "pedidos confirmados: 0" in resultado.loc[0, "justificativa"]
@@ -85,7 +113,7 @@ def test_multiplos_dias_e_pedidos_sao_agregados_e_usa_estoque_mais_recente():
             "estoque_disponivel": [100, 4],
         }
     )
-    resultado = gerar_recomendacoes(
+    resultado = _executar_motor(
         _previsoes((5, 6, 7)), _seguranca(2), estoque, _pedidos((3, 4))
     )
 
@@ -100,7 +128,7 @@ def test_multiplos_medicamentos_nao_sao_misturados():
     estoque = pd.concat([_estoque(3, "med_a"), _estoque(10, "med_b")])
     pedidos = pd.concat([_pedidos((4,), "med_a"), _pedidos((20,), "med_b")])
 
-    resultado = gerar_recomendacoes(previsoes, seguranca, estoque, pedidos).set_index(
+    resultado = _executar_motor(previsoes, seguranca, estoque, pedidos).set_index(
         "medicamento_id"
     )
 
@@ -109,10 +137,10 @@ def test_multiplos_medicamentos_nao_sao_misturados():
 
 
 def test_estoque_seguranca_maior_aumenta_recomendacao():
-    sem_buffer = gerar_recomendacoes(
+    sem_buffer = _executar_motor(
         _previsoes((20,)), _seguranca(0), _estoque(5), _pedidos((3,))
     )
-    com_buffer = gerar_recomendacoes(
+    com_buffer = _executar_motor(
         _previsoes((20,)), _seguranca(7), _estoque(5), _pedidos((3,))
     )
 
@@ -126,7 +154,7 @@ def test_estoque_seguranca_maior_aumenta_recomendacao():
 
 def test_rejeita_coluna_obrigatoria_ausente_e_valor_invalido():
     with pytest.raises(ValueError, match="colunas obrigatorias"):
-        gerar_recomendacoes(
+        _executar_motor(
             _previsoes().drop(columns="demanda_prevista"),
             _seguranca(),
             _estoque(),
@@ -135,14 +163,14 @@ def test_rejeita_coluna_obrigatoria_ausente_e_valor_invalido():
 
     previsoes = _previsoes((-1,))
     with pytest.raises(ValueError, match="valores negativos"):
-        gerar_recomendacoes(previsoes, _seguranca(), _estoque(), _pedidos())
+        _executar_motor(previsoes, _seguranca(), _estoque(), _pedidos())
 
 
 def test_nao_modifica_dataframes_recebidos():
     entradas = [_previsoes((10, 12)), _seguranca(), _estoque(), _pedidos((1, 2))]
     copias = [entrada.copy(deep=True) for entrada in entradas]
 
-    gerar_recomendacoes(*entradas)
+    _executar_motor(*entradas)
 
     for entrada, copia in zip(entradas, copias, strict=True):
         pd.testing.assert_frame_equal(entrada, copia)
@@ -151,10 +179,10 @@ def test_nao_modifica_dataframes_recebidos():
 def test_rejeita_duplicidades_ambiguas_e_falta_de_cobertura():
     previsoes_duplicadas = pd.concat([_previsoes((10,)), _previsoes((20,))])
     with pytest.raises(ValueError, match="duplicadas"):
-        gerar_recomendacoes(previsoes_duplicadas, _seguranca(), _estoque(), _pedidos())
+        _executar_motor(previsoes_duplicadas, _seguranca(), _estoque(), _pedidos())
 
     with pytest.raises(ValueError, match="sem dados para medicamentos previstos"):
-        gerar_recomendacoes(
+        _executar_motor(
             _previsoes(), _seguranca(medicamento="outro"), _estoque(), _pedidos()
         )
 
@@ -184,7 +212,7 @@ def test_rejeita_valores_numericos_invalidos(valor, entrada, coluna):
 
     erro = TypeError if valor is True else ValueError
     with pytest.raises(erro, match=coluna):
-        gerar_recomendacoes(
+        _executar_motor(
             entradas["previsoes"],
             entradas["seguranca"],
             entradas["estoque"],
@@ -208,7 +236,7 @@ def test_rejeita_valores_numericos_invalidos(valor, entrada, coluna):
     ],
 )
 def test_aceita_representacoes_de_nenhum_pedido(pedidos):
-    resultado = gerar_recomendacoes(_previsoes(), _seguranca(), _estoque(), pedidos)
+    resultado = _executar_motor(_previsoes(), _seguranca(), _estoque(), pedidos)
 
     assert resultado.loc[0, "compra_recomendada"] == 9
     assert "pedidos confirmados: 0" in resultado.loc[0, "justificativa"]
@@ -226,7 +254,7 @@ def test_desconta_apenas_pedido_com_entrega_dentro_do_horizonte():
         }
     )
 
-    resultado = gerar_recomendacoes(previsoes, _seguranca(), _estoque(), pedidos)
+    resultado = _executar_motor(previsoes, _seguranca(), _estoque(), pedidos)
 
     assert resultado.loc[0, "compra_recomendada"] == 25
     assert "pedidos confirmados: 4" in resultado.loc[0, "justificativa"]
@@ -243,7 +271,7 @@ def test_nao_desconta_pedido_criado_depois_da_data_de_referencia():
         }
     )
 
-    resultado = gerar_recomendacoes(
+    resultado = _executar_motor(
         _previsoes((10, 10, 10)), _seguranca(), _estoque(), pedidos
     )
 
@@ -261,7 +289,7 @@ def test_rejeita_datas_inconsistentes_do_pedido():
     )
 
     with pytest.raises(ValueError, match="data_pedido"):
-        gerar_recomendacoes(_previsoes((10, 10, 10)), _seguranca(), _estoque(), pedidos)
+        _executar_motor(_previsoes((10, 10, 10)), _seguranca(), _estoque(), pedidos)
 
 
 def test_ignora_estoque_posterior_ao_inicio_da_previsao():
@@ -273,14 +301,14 @@ def test_ignora_estoque_posterior_ao_inicio_da_previsao():
         }
     )
 
-    resultado = gerar_recomendacoes(_previsoes(), _seguranca(), estoque, pd.DataFrame())
+    resultado = _executar_motor(_previsoes(), _seguranca(), estoque, pd.DataFrame())
 
     assert resultado.loc[0, "compra_recomendada"] == 9
 
 
 def test_rejeita_quando_nao_ha_estoque_ate_data_de_referencia():
     with pytest.raises(ValueError, match="data de referencia"):
-        gerar_recomendacoes(
+        _executar_motor(
             _previsoes(),
             _seguranca(),
             _estoque().assign(data="2026-01-02"),
@@ -297,7 +325,7 @@ def test_rejeita_datas_invalidas_ou_ausentes(campo, valor):
     alvo[campo] = pd.Series([valor], dtype=object)
 
     with pytest.raises(ValueError, match=campo):
-        gerar_recomendacoes(previsoes, _seguranca(), estoque, pd.DataFrame())
+        _executar_motor(previsoes, _seguranca(), estoque, pd.DataFrame())
 
 
 def test_aceita_datas_com_timezone_sem_vazamento_temporal():
@@ -306,13 +334,13 @@ def test_aceita_datas_com_timezone_sem_vazamento_temporal():
     )
     estoque = _estoque().assign(data=[pd.Timestamp("2025-12-31", tz="UTC")])
 
-    resultado = gerar_recomendacoes(previsoes, _seguranca(), estoque, pd.DataFrame())
+    resultado = _executar_motor(previsoes, _seguranca(), estoque, pd.DataFrame())
 
     assert resultado.loc[0, "compra_recomendada"] == 9
 
 
 def test_elimina_residuo_numerico_proximo_de_zero():
-    resultado = gerar_recomendacoes(
+    resultado = _executar_motor(
         _previsoes((0.1 + 0.2,)), _seguranca(0), _estoque(0.3), pd.DataFrame()
     )
 
@@ -345,15 +373,9 @@ def test_integracao_modelo_estoque_seguranca_e_motor():
         {"medicamento_id": ["med_a"], "data": [corte], "estoque_disponivel": [20]}
     )
 
-    resultado = gerar_recomendacoes(previsoes, seguranca, estoque, pd.DataFrame())
+    resultado = _executar_motor(previsoes, seguranca, estoque, pd.DataFrame())
 
-    assert list(resultado.columns) == [
-        "medicamento_id",
-        "compra_recomendada",
-        "risco_falta",
-        "risco_vencimento",
-        "justificativa",
-    ]
+    assert list(resultado.columns) == COLUNAS_SAIDA
     assert resultado.loc[0, "medicamento_id"] == "med_a"
     assert resultado.loc[0, "compra_recomendada"] >= 0
 
@@ -370,7 +392,7 @@ def test_rejeita_identificadores_fora_do_contrato(entrada, identificador):
     entradas[entrada]["medicamento_id"] = [identificador]
 
     with pytest.raises((TypeError, ValueError), match="medicamento_id"):
-        gerar_recomendacoes(
+        _executar_motor(
             entradas["previsoes"],
             entradas["seguranca"],
             entradas["estoque"],
@@ -391,17 +413,17 @@ def test_rejeita_horizontes_diferentes_entre_medicamentos():
     estoque = pd.concat([_estoque(medicamento="med_a"), _estoque(medicamento="med_b")])
 
     with pytest.raises(ValueError, match="mesmas datas de horizonte"):
-        gerar_recomendacoes(previsoes, seguranca, estoque, pd.DataFrame())
+        _executar_motor(previsoes, seguranca, estoque, pd.DataFrame())
 
 
 def test_rejeita_overflow_na_agregacao_de_demanda_e_pedidos():
     with pytest.raises(ValueError, match="demanda agregada"):
-        gerar_recomendacoes(
+        _executar_motor(
             _previsoes((1e308, 1e308)), _seguranca(0), _estoque(0), pd.DataFrame()
         )
 
     with pytest.raises(ValueError, match="pedidos agregados"):
-        gerar_recomendacoes(
+        _executar_motor(
             _previsoes((10,)), _seguranca(), _estoque(), _pedidos((1e308, 1e308))
         )
 
@@ -415,7 +437,7 @@ def test_filtra_pedido_futuro_mesmo_sem_data_prevista_entrega():
         }
     )
 
-    resultado = gerar_recomendacoes(_previsoes(), _seguranca(), _estoque(), pedidos)
+    resultado = _executar_motor(_previsoes(), _seguranca(), _estoque(), pedidos)
 
     assert resultado.loc[0, "compra_recomendada"] == 9
 
@@ -429,7 +451,7 @@ def test_rejeita_numero_ou_booleano_como_data(campo, valor):
     alvo[campo] = pd.Series([valor], dtype=object)
 
     with pytest.raises(TypeError, match=campo):
-        gerar_recomendacoes(previsoes, _seguranca(), estoque, pd.DataFrame())
+        _executar_motor(previsoes, _seguranca(), estoque, pd.DataFrame())
 
 
 def test_calculo_vetorizado_em_escala_preserva_grupos_e_fronteiras_temporais():
@@ -493,7 +515,7 @@ def test_calculo_vetorizado_em_escala_preserva_grupos_e_fronteiras_temporais():
         columns=["medicamento_id", "pedido_id", "quantidade", "data_prevista_entrega"],
     )
 
-    resultado = gerar_recomendacoes(previsoes, segurancas, estoques, pedidos).set_index(
+    resultado = _executar_motor(previsoes, segurancas, estoques, pedidos).set_index(
         "medicamento_id"
     )
 

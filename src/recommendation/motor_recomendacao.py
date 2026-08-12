@@ -55,19 +55,19 @@ def gerar_recomendacoes(
 
     Os DataFrames recebidos nunca sao modificados. A recomendacao permanece
     fracionaria porque o contrato define ``float`` e nao exige arredondamento.
+    A ordem dos argumentos segue o contrato: estoque atual antes do estoque de
+    seguranca. Chamadas que desejem evitar dependencia da ordem podem usar os
+    nomes dos parametros.
     """
     _validar_dataframe(previsoes, "previsoes")
     _validar_dataframe(estoque_atual, "estoque_atual")
     _validar_dataframe(estoque_seguranca, "estoque_seguranca")
-    # Compatibilidade com a primeira versão da Issue #15, cuja ordem era
-    # (previsoes, estoques_seguranca, estoque_historico, pedidos).
-    if (
-        "estoque_seguranca" in estoque_atual.columns
-        and "estoque_disponivel" in estoque_seguranca.columns
-    ):
-        estoque_atual, estoque_seguranca = estoque_seguranca, estoque_atual
-    pedidos_pendentes = pd.DataFrame() if pedidos_pendentes is None else pedidos_pendentes
-    medicamentos_referencia = pd.DataFrame() if medicamentos_referencia is None else medicamentos_referencia
+    pedidos_pendentes = (
+        pd.DataFrame() if pedidos_pendentes is None else pedidos_pendentes
+    )
+    medicamentos_referencia = (
+        pd.DataFrame() if medicamentos_referencia is None else medicamentos_referencia
+    )
     lotes = pd.DataFrame() if lotes is None else lotes
 
     previsoes = previsoes.copy()
@@ -89,7 +89,9 @@ def gerar_recomendacoes(
     if not pedidos_pendentes.empty:
         _validar_colunas(pedidos_pendentes, COLUNAS_PEDIDOS, "pedidos_pendentes")
     if not medicamentos_referencia.empty:
-        _validar_colunas(medicamentos_referencia, COLUNAS_REFERENCIA, "medicamentos_referencia")
+        _validar_colunas(
+            medicamentos_referencia, COLUNAS_REFERENCIA, "medicamentos_referencia"
+        )
     if not lotes.empty:
         _validar_colunas(lotes, COLUNAS_LOTES, "lotes")
     if previsoes.empty:
@@ -118,7 +120,9 @@ def gerar_recomendacoes(
     lotes = (
         lotes[["medicamento_id", "quantidade_atual", "data_validade"]].copy()
         if not lotes.empty
-        else pd.DataFrame(columns=["medicamento_id", "quantidade_atual", "data_validade"])
+        else pd.DataFrame(
+            columns=["medicamento_id", "quantidade_atual", "data_validade"]
+        )
     )
 
     _validar_identificadores(demanda, "previsoes")
@@ -138,7 +142,9 @@ def gerar_recomendacoes(
     if not pedidos.empty:
         _converter_numerico_nao_negativo(pedidos, "quantidade", "pedidos_pendentes")
     if not referencia.empty:
-        _converter_numerico_nao_negativo(referencia, "prazo_entrega_dias", "medicamentos_referencia")
+        _converter_numerico_nao_negativo(
+            referencia, "prazo_entrega_dias", "medicamentos_referencia"
+        )
     if not lotes.empty:
         _converter_numerico_nao_negativo(lotes, "quantidade_atual", "lotes")
 
@@ -150,7 +156,9 @@ def gerar_recomendacoes(
     fim_horizonte = demanda["data_previsao"].max()
     data_referencia = inicio_horizonte - pd.Timedelta(days=1)
     if not lotes.empty:
-        lotes["data_validade"] = _converter_datas(lotes["data_validade"], "lotes.data_validade")
+        lotes["data_validade"] = _converter_datas(
+            lotes["data_validade"], "lotes.data_validade"
+        )
 
     _rejeitar_duplicatas(demanda, ["medicamento_id", "data_previsao"], "previsoes")
     _validar_horizonte_compartilhado(demanda)
@@ -213,7 +221,8 @@ def gerar_recomendacoes(
     )
     resultado = resultado.merge(
         _resumir_lotes_proximos(lotes, data_referencia, resultado),
-        on="medicamento_id", how="left"
+        on="medicamento_id",
+        how="left",
     )
     resultado[["quantidade_proxima_validade", "dias_ate_validade"]] = resultado[
         ["quantidade_proxima_validade", "dias_ate_validade"]
@@ -233,7 +242,9 @@ def gerar_recomendacoes(
     calculo = calculo.mask(np.isclose(calculo, 0.0, rtol=0.0, atol=1e-12), 0.0)
     resultado["compra_recomendada"] = calculo.clip(lower=0.0)
     resultado["risco_falta"] = resultado.apply(_classificar_risco_falta, axis=1)
-    resultado["risco_vencimento"] = resultado.apply(_classificar_risco_vencimento, axis=1)
+    resultado["risco_vencimento"] = resultado.apply(
+        _classificar_risco_vencimento, axis=1
+    )
     resultado["justificativa"] = resultado.apply(_criar_justificativa, axis=1)
     return resultado[COLUNAS_SAIDA].sort_values("medicamento_id").reset_index(drop=True)
 
@@ -358,10 +369,18 @@ def _resumir_lotes_proximos(
 ) -> pd.DataFrame:
     """Soma lotes que vencem até o prazo de entrega de cada medicamento."""
     if lotes.empty:
-        return pd.DataFrame(columns=["medicamento_id", "quantidade_proxima_validade", "dias_ate_validade"])
+        return pd.DataFrame(
+            columns=[
+                "medicamento_id",
+                "quantidade_proxima_validade",
+                "dias_ate_validade",
+            ]
+        )
     prazo = resultado.set_index("medicamento_id")["prazo_entrega_dias"]
     copia = lotes.copy()
-    copia["dias_ate_validade"] = (copia["data_validade"] - data_referencia).dt.days.clip(lower=0)
+    copia["dias_ate_validade"] = (
+        copia["data_validade"] - data_referencia
+    ).dt.days.clip(lower=0)
     copia["prazo_entrega_dias"] = copia["medicamento_id"].map(prazo).fillna(0)
     proximos = copia[copia["dias_ate_validade"] <= copia["prazo_entrega_dias"]]
     return proximos.groupby("medicamento_id", as_index=False).agg(
@@ -407,7 +426,11 @@ def _criar_justificativa(linha: pd.Series) -> str:
     disponivel = _formatar_quantidade(linha["estoque_disponivel"])
     pedidos = _formatar_quantidade(linha["pedidos_confirmados"])
     compra = _formatar_quantidade(linha["compra_recomendada"])
-    cobertura = linha["estoque_disponivel"] / linha["demanda_diaria"] if linha["demanda_diaria"] > 0 else 0
+    cobertura = (
+        linha["estoque_disponivel"] / linha["demanda_diaria"]
+        if linha["demanda_diaria"] > 0
+        else 0
+    )
     texto = (
         f"Comprar {compra} unidades. Demanda prevista para o horizonte: {demanda} unidades; "
         f"estoque de seguranca: {seguranca}; estoque disponivel mais recente: {disponivel}; "
