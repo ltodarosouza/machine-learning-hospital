@@ -9,31 +9,31 @@ Dataset de treino/teste: `data/processed/consumo_medicamentos.csv`, período 202
 | Método | MAE (unidades/dia) | MAPE (%) |
 |---|---|---|
 | Baseline (média móvel) | 9.60 | 18.2% |
-| Modelo de ML | 9.39 | 17.7% |
+| Modelo de ML | 9.43 | 17.9% |
 
-**O modelo de ML reduziu o erro (MAE) em 2.1% frente ao baseline.**
+**O modelo de ML reduziu o erro (MAE) em 1.8% frente ao baseline.**
 
 ## Detalhamento por medicamento
 
 | Medicamento | MAE baseline | MAE modelo | MAPE baseline | MAPE modelo | Modelo venceu? |
 |---|---|---|---|---|---|
-| adrenalina_inj | 2.02 | 2.16 | 41.9% | 41.2% | Não |
-| amoxicilina | 7.60 | 7.69 | 16.0% | 15.5% | Não |
-| azitromicina | 6.83 | 7.00 | 14.8% | 14.5% | Não |
-| ceftriaxona_inj | 6.63 | 6.11 | 17.4% | 15.4% | Sim |
-| diazepam | 3.66 | 3.78 | 23.1% | 24.4% | Não |
-| diclofenaco | 11.95 | 11.65 | 21.3% | 21.0% | Sim |
-| dipirona | 26.60 | 27.73 | 10.6% | 10.8% | Não |
-| hidrocortisona_inj | 6.23 | 5.54 | 28.6% | 26.9% | Sim |
-| ibuprofeno | 11.81 | 10.21 | 12.2% | 10.9% | Sim |
-| loratadina | 5.15 | 4.82 | 20.1% | 18.8% | Sim |
+| adrenalina_inj | 2.02 | 2.13 | 41.9% | 41.0% | Não |
+| amoxicilina | 7.60 | 7.76 | 16.0% | 15.7% | Não |
+| azitromicina | 6.83 | 7.14 | 14.8% | 14.9% | Não |
+| ceftriaxona_inj | 6.63 | 6.27 | 17.4% | 15.9% | Sim |
+| diazepam | 3.66 | 3.74 | 23.1% | 23.6% | Não |
+| diclofenaco | 11.95 | 11.92 | 21.3% | 21.6% | Sim |
+| dipirona | 26.60 | 26.55 | 10.6% | 10.5% | Sim |
+| hidrocortisona_inj | 6.23 | 5.82 | 28.6% | 28.1% | Sim |
+| ibuprofeno | 11.81 | 11.17 | 12.2% | 11.9% | Sim |
+| loratadina | 5.15 | 4.97 | 20.1% | 19.4% | Sim |
 | metoclopramida | 8.02 | 7.66 | 17.1% | 16.2% | Sim |
-| omeprazol_inj | 7.44 | 7.28 | 21.6% | 21.0% | Sim |
-| ondansetrona | 5.94 | 5.97 | 17.8% | 18.6% | Não |
-| paracetamol | 25.02 | 24.21 | 12.5% | 11.8% | Sim |
-| predinisolona | 5.81 | 5.92 | 13.8% | 14.1% | Não |
-| salbutamol | 7.33 | 7.35 | 11.7% | 11.8% | Não |
-| soro_antitermico_infantil | 8.74 | 8.37 | 17.9% | 17.1% | Sim |
-| soro_fisiologico | 19.69 | 18.97 | 13.3% | 12.8% | Sim |
-| soro_ringer | 12.03 | 12.18 | 16.3% | 16.1% | Não |
-| tramadol | 3.45 | 3.24 | 16.3% | 16.0% | Sim |
+| omeprazol_inj | 7.44 | 7.48 | 21.6% | 21.5% | Não |
+| ondansetrona | 5.94 | 5.96 | 17.8% | 18.4% | Não |
+| paracetamol | 25.02 | 24.47 | 12.5% | 12.2% | Sim |
+| predinisolona | 5.81 | 6.03 | 13.8% | 14.1% | Não |
+| salbutamol | 7.33 | 7.49 | 11.7% | 12.2% | Não |
+| soro_antitermico_infantil | 8.74 | 8.36 | 17.9% | 17.0% | Sim |
+| soro_fisiologico | 19.69 | 19.00 | 13.3% | 12.9% | Sim |
+| soro_ringer | 12.03 | 11.26 | 16.3% | 14.7% | Sim |
+| tramadol | 3.45 | 3.31 | 16.3% | 16.3% | Sim |

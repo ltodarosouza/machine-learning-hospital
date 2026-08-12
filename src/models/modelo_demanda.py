@@ -7,14 +7,17 @@ erro no horizonte do MVP.
 Algoritmo: XGBoost (gradient boosting), trocado de Random Forest depois de um
 experimento comparando as duas opções, mais Gradient Boosting do scikit-learn,
 sob a mesma metodologia de validação temporal sem vazamento (retreina do zero
-a cada janela, só usa ``data <= corte``). Hiperparâmetros (``max_depth=7``,
+a cada janela, só usa ``data <= corte``). Hiperparâmetros (``max_depth=5``,
 ``learning_rate=0.1``, ``n_estimators=500``) escolhidos por grid search sob a
-mesma metodologia (``scripts/tuning_xgboost.py``). Período histórico também
-foi estendido de 2 para 4 anos (``src/utils/config.py``) para dar mais ciclos
-sazonais ao modelo. Resultado final sobre o período de teste de 2025-12-04 a
-2025-12-31: MAE agregado de 9.39 unidades/dia (era 9.83 com Random Forest e 2
-anos de histórico). Detalhes em docs/arquitetura/RESULTADOS_MODELAGEM.md e
-src/models/README.md.
+mesma metodologia (``scripts/tuning_xgboost.py``), re-executado depois que a
+normalização causal por medicamento (fix de vazamento de outra pessoa do
+time) mudou os valores das features. Período histórico também foi estendido
+de 2 para 4 anos (``src/utils/config.py``) para dar mais ciclos sazonais ao
+modelo. Resultado final sobre o período de teste de 2025-12-04 a 2025-12-31:
+MAE agregado de 9.43 unidades/dia. Nesse ponto XGBoost e Random Forest tunado
+ficaram muito próximos em precisão (9.43 vs 9.54) — XGBoost foi escolhido
+também pela velocidade de treino (~40x mais rápido). Detalhes em
+docs/arquitetura/RESULTADOS_MODELAGEM.md e src/models/README.md.
 """
 
 from __future__ import annotations
@@ -102,7 +105,7 @@ def treinar_modelo(
     )
     regressor = XGBRegressor(
         n_estimators=n_estimators,
-        max_depth=7,
+        max_depth=5,
         learning_rate=0.1,
         subsample=0.8,
         colsample_bytree=0.8,

@@ -45,11 +45,11 @@ O comando executa uma validação temporal e salva o artefato reproduzível em
 A primeira versão desta Issue usava `RandomForestRegressor` sobre 2 anos de
 dado sintético (2024-2025). Depois da task #13 mostrar uma vantagem pequena e
 não unânime do ML sobre o baseline (1.6% de redução de MAE, só 12/20
-medicamentos), fizemos duas rodadas de melhoria, sempre sob a mesma
+medicamentos), passamos por três rodadas de melhoria, sempre sob a mesma
 metodologia de validação temporal sem vazamento (retreina do zero a cada
 janela de teste, só usa `data <= corte`):
 
-**1. Comparação de algoritmos** ([`scripts/comparar_algoritmos_modelo.py`](../../scripts/comparar_algoritmos_modelo.py)), ainda com 2 anos de dado:
+**1. Comparação de algoritmos**, ainda com 2 anos de dado — [`scripts/comparar_algoritmos_modelo.py`](../../scripts/comparar_algoritmos_modelo.py):
 
 | Configuração | MAE (unid./dia) | Tempo de treino (4 janelas) |
 |---|---|---|
@@ -62,29 +62,54 @@ janela de teste, só usa `data <= corte`):
 XGBoost venceu em precisão **e** foi ~10x mais rápido de treinar — por isso a
 troca de algoritmo.
 
-**2. Mais dado histórico + tuning de hiperparâmetros:** estendemos o período
-sintético de 2 para 4 anos (2022-2025, `src/utils/config.py`) e rodamos um
-grid search de hiperparâmetros do XGBoost ([`scripts/tuning_xgboost.py`](../../scripts/tuning_xgboost.py),
-18 combinações de `max_depth`/`learning_rate`/`n_estimators`). Melhor
-configuração encontrada: `max_depth=7, learning_rate=0.1, n_estimators=500`
-(MAE 9.39 no dataset de 4 anos, contra 9.57 do XGBoost com hiperparâmetros
-genéricos no mesmo dataset — essa comparação **é** direta, mesmo dataset).
+**2. Mais dado histórico + tuning:** estendemos o período sintético de 2 para
+4 anos (2022-2025, `src/utils/config.py`) e rodamos um grid search de
+hiperparâmetros do XGBoost — [`scripts/tuning_xgboost.py`](../../scripts/tuning_xgboost.py),
+18 combinações de `max_depth`/`learning_rate`/`n_estimators`. Melhor
+configuração na época: `max_depth=7, learning_rate=0.1, n_estimators=500`
+(MAE 9.39 no dataset de 4 anos).
 
-**Atenção ao comparar números entre as duas rodadas:** estender o período
+**3. Correção de vazamento na normalização (feito por outra pessoa do time,
+em paralelo) mudou os resultados de novo:** `gerar_features_normalizadas`
+passou de um z-score global (média/desvio do `df` inteiro recebido) para um
+z-score causal por medicamento (só usa observações anteriores à data). Mais
+correto — o método antigo não vazava dado *entre treino e teste* na nossa
+metodologia de validação (porque sempre chamávamos `gerar_features` só com
+`data <= corte`), mas usava uma estatística "global" pouco realista para uso
+em produção (ex.: o desvio-padrão da temperatura ao longo de anos, aplicado
+igual em qualquer dia). Isso muda os *valores* de 3 features de entrada do
+modelo, então precisou de nova comparação de algoritmo e novo tuning:
+
+| Configuração (pós-correção) | MAE (unid./dia) | Tempo de treino |
+|---|---|---|
+| Random Forest tunado | 9.54 | 1638s |
+| XGBoost (hiperparâmetros da rodada 2, não retunados) | 9.56 | 40s |
+| **XGBoost retunado** (`max_depth=5, learning_rate=0.1, n_estimators=500`) | **9.43** | **~45s** |
+
+XGBoost retunado continuou a melhor opção — por pouco em precisão frente ao
+Random Forest tunado, mas ~35x mais rápido de treinar, o que importa para
+quem for iterar mais no modelo depois.
+
+**Atenção ao comparar números entre rodadas 1→2:** estender o período
 sintético não é só "adicionar mais linhas no início" — o gerador (Issue #3)
 calcula sazonalidade e ruído sobre o array do período inteiro de uma vez, então
 mudar o tamanho do array desloca a sequência de números aleatórios e os
 valores de consumo **das mesmas datas de calendário mudam** entre a versão de
-2 anos e a de 4 anos (mesmo dezembro/2025 sendo "o mesmo mês" nos dois casos).
-Por isso o MAE do baseline também mudou (9.99 → 9.60) — não é possível
-comparar "3.6% de redução" (rodada 1) com "2.1%" (rodada 2, resultado final)
-como se fosse o mesmo problema. A comparação válida é sempre **dentro** da
-mesma versão do dataset.
+2 anos e a de 4 anos. Por isso o MAE do baseline também mudou entre rodadas
+(9.99 → 9.60) — os percentuais de redução de cada rodada não são comparáveis
+entre si, só os valores absolutos de MAE **dentro** da mesma versão de dataset
++ features.
 
-Resultado final (dataset de 4 anos, XGBoost tunado), documentado em
+**Resultado final** (dataset de 4 anos, features com normalização causal,
+XGBoost retunado), documentado em
 [`docs/arquitetura/RESULTADOS_MODELAGEM.md`](../../docs/arquitetura/RESULTADOS_MODELAGEM.md):
-MAE agregado de **9.39** unidades/dia, **2.1%** menor que o baseline (9.60),
-vencendo em 11 dos 20 medicamentos.
+MAE agregado de **9.43** unidades/dia, **1.8%** menor que o baseline (9.60),
+vencendo em 11 dos 20 medicamentos. É uma vantagem modesta — reportado sem
+maquiagem, como todo o resto desta avaliação. Ganhos adicionais provavelmente
+exigem mais dado real (não sintético) ou features novas, não só mais tuning:
+ver a resposta sobre "meta de 10%" na conversa do projeto para o racional
+completo (parte do erro é ruído que o próprio gerador sintético injeta de
+propósito, não é um teto que dá para prever).
 
 **Tamanho do dataset, para contexto:** 1.461 dias (4 anos) × 20 medicamentos =
 29.220 linhas brutas; depois do "aquecimento" das médias móveis de 30 dias,
