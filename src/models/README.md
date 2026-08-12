@@ -117,11 +117,11 @@ valores de consumo **das mesmas datas de calendário mudam** entre a versão de
 entre si, só os valores absolutos de MAE **dentro** da mesma versão de dataset
 + features.
 
-**Resultado final** (dataset de 4 anos, features com normalização causal,
-XGBoost retunado), documentado em
-[`docs/arquitetura/RESULTADOS_MODELAGEM.md`](../../docs/arquitetura/RESULTADOS_MODELAGEM.md):
-MAE agregado de **9.43** unidades/dia, **1.8%** menor que o baseline (9.60),
-vencendo em 11 dos 20 medicamentos. É uma vantagem modesta — reportado sem
+**Resultado da avaliação atual** (dataset de 4 anos com os estados latentes de
+surto da Issue #58, features com normalização causal, XGBoost retunado),
+documentado em [`docs/arquitetura/RESULTADOS_MODELAGEM.md`](../../docs/arquitetura/RESULTADOS_MODELAGEM.md):
+MAE agregado de **10.42** unidades/dia, **1.9%** menor que o baseline (10.62),
+vencendo em 10 dos 20 medicamentos. É uma vantagem modesta — reportado sem
 maquiagem, como todo o resto desta avaliação.
 
 **Por que o ganho é modesto — e o que fazer a respeito:** análise técnica do
@@ -139,16 +139,13 @@ invertida de `atendimentos_ps`), **#60** (separa demanda latente de
 dispensação observada em rupturas) e **#61** (classes de persistência por
 medicamento, ruído autocorrelacionado).
 
-**Atenção:** a Issue #58 já foi feita e o dataset já foi regenerado com ela,
-mas **a comparação de algoritmos/tuning acima ainda não foi re-executada**
-com o dataset novo (era explicitamente fora do escopo da #58, para não
-misturar as duas coisas). Os números de MAE/MAPE deste README e de
-`docs/arquitetura/RESULTADOS_MODELAGEM.md` ainda refletem o dataset **sem**
-os estados de surto — podem mudar (para melhor, é a expectativa, mas não
-está medido ainda) na próxima vez que alguém rodar
-`scripts/comparar_algoritmos_modelo.py` e `src/evaluation/comparar_modelos.py`.
-Ficam pendentes também as issues #59-#61, e depois de todas vale reabrir essa
-comparação para medir o efeito combinado.
+**Atenção:** a Issue #58 já foi feita, o dataset foi regenerado com ela e a
+comparação de baseline contra XGBoost foi reexecutada. Os números atuais estão
+em `docs/arquitetura/RESULTADOS_MODELAGEM.md`; já as tabelas de comparação de
+algoritmos e tuning acima ainda refletem o dataset **sem** os estados de surto,
+porque essa reavaliação ficou fora do escopo da #58. Ficam pendentes também as
+issues #59-#61, e depois de todas vale reabrir a comparação de algoritmos para
+medir o efeito combinado.
 
 **Tamanho do dataset, para contexto:** 1.461 dias (4 anos) × 20 medicamentos =
 29.220 linhas brutas; depois do "aquecimento" das médias móveis de 30 dias,
