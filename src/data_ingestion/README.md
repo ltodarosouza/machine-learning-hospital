@@ -16,7 +16,24 @@ Saída: `data/external/calendario.csv` — 1 linha por dia, colunas `data`, `fer
 
 Feriados cobertos: nacionais (ex. Confraternização Universal, Tiradentes, Natal) + estaduais da Paraíba, via `holidays.Brazil(subdiv="PB")`. Não cobre feriados municipais específicos de João Pessoa (a lib não tem esse nível de granularidade) — se o time achar necessário, pode ser adicionado manualmente depois como uma lista fixa.
 
-### `gerar_dataset_sintetico.py` (Issue #3) — pendente
+### `gerar_dataset_sintetico.py` (Issue #3) — pronto
+
+Gera o dataset sintético de consumo dos 20 medicamentos do MVP, calibrado para reagir às variáveis externas reais (clima, dengue, feriados — Issues #4/#5/#6) e para incluir uma política de reposição "ingênua" (a forma como um hospital decide hoje, sem modelo preditivo), que produz de propósito alguns episódios de ruptura e alguns lotes com risco de vencimento — sem isso não haveria nada para o motor de recomendação melhorar depois.
+
+```bash
+python src/data_ingestion/gerar_dataset_sintetico.py
+```
+
+Saída (todas em `data/processed/`, commitadas — ver `.gitignore`, dado sintético/reprodutível, não é dado real de hospital nenhum):
+
+- `consumo_diario.csv` — contrato 1.1 (14.620 linhas: 20 medicamentos × 731 dias)
+- `medicamentos_ref.csv` — contrato 1.3 (cadastro: nome, categoria, prazo de entrega, preço)
+- `lotes.csv` — contrato 1.4 (lotes em estoque, com validade)
+- `pedidos_pendentes.csv` — contrato 1.5 (pedidos em trânsito no fim do período)
+
+**Importante — números de base são premissas do time, não dados reais:** consumo médio diário por medicamento, preços e prazos de entrega em `MEDICAMENTOS_REF` (dentro do script) são estimativas de ordem de grandeza para o MVP fazer sentido, não vieram de nenhum hospital real. Isso é consistente com o framing já adotado no projeto (ver `docs/negocio/CONTEXTO.md`, seção de cuidado com números de impacto) — se questionado na banca, a resposta é "dataset sintético calibrado com padrões plausíveis, não dado real".
+
+**Casos propositalmente extremos para o pitch:** `ceftriaxona_inj` e `hidrocortisona_inj` têm um lote grande com validade próxima (risco de vencimento); `adrenalina_inj` tem estoque cronicamente baixo frente ao consumo (risco de falta, é o item com mais dias de ruptura no período). Isso dá exemplos concretos e visuais para o dashboard e a apresentação, em vez de precisar torcer para o acaso gerar um caso interessante.
 
 ### `ingestao_clima.py` (Issue #4) — pronto
 
