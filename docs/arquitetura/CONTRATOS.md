@@ -12,7 +12,7 @@ Quem pegar uma task trabalha com um **mock/exemplo pequeno** do contrato de entr
 
 - **Hospital/setor fictício:** Pronto-Socorro / Emergência de um hospital fictício. Escolhido porque tem forte ligação com as variáveis externas do projeto (clima, dengue), o que torna a demonstração do valor do modelo mais clara.
 - **Região de referência (para dados externos reais):** João Pessoa – PB. O hospital é fictício, mas o clima e a epidemiologia usados para calibrar o dataset sintético vêm de dados reais dessa cidade (ver Issue #2 / `FONTES_DADOS.md`).
-- **Período histórico sintético:** 2 anos de dados diários (para o modelo aprender sazonalidade anual completa e ainda sobrar um período de teste realista).
+- **Período histórico sintético:** 2 anos de dados diários — **2024-01-01 a 2025-12-31** (731 dias), fechado na Issue #6. Constantes em `src/utils/config.py` (`PERIODO_INICIO`, `PERIODO_FIM`) — todo script de geração/ingestão deve importar de lá, nunca hardcodar as datas de novo.
 - **Horizonte de previsão:** 7 dias.
 - **Prazo de entrega do fornecedor (lead time):** ~7 dias como padrão, variando por medicamento (alguns itens — ex. controlados/adrenalina — têm prazo maior). Definido por medicamento na tabela de referência (seção 1.3).
 - **Lista de medicamentos do MVP (20 itens):**
