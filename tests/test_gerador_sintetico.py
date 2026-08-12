@@ -12,6 +12,8 @@ from src.data_ingestion.gerar_dataset_sintetico import (
     _distribuir_quantidade_inteira,
     fator_surto,
     gerar_estado_surto,
+    simular_estoque,
+    validar_consumo_diario,
     validar_lotes,
 )
 
@@ -117,3 +119,49 @@ def test_fator_surto_mapeia_estado_para_multiplicador_correto() -> None:
     assert (fatores == esperado).all()
     assert fatores[0] == 1.0  # normal não altera a média-base
     assert fatores[4] > fatores[1] > fatores[0]  # surto > elevado > normal
+
+
+def test_ruptura_censura_dispensacao_mas_preserva_demanda_latente() -> None:
+    """A demanda existe mesmo sem saldo, mas não pode ser dispensada fisicamente."""
+    demanda = pd.DataFrame(
+        {
+            "data": pd.date_range("2025-01-01", periods=5, freq="D").astype(str),
+            "medicamento_id": ["med_a"] * 5,
+            "consumo_unidades": [0.0, 10.0, 10.0, 10.0, 10.0],
+        }
+    )
+    referencia = pd.DataFrame(
+        {"medicamento_id": ["med_a"], "prazo_entrega_dias": [3]}
+    )
+
+    resultado = simular_estoque(demanda, referencia, np.random.default_rng(7))
+
+    assert (resultado["dispensacao_unidades"] <= resultado["consumo_unidades"]).all()
+    assert np.allclose(
+        resultado["consumo_unidades"],
+        resultado["dispensacao_unidades"] + resultado["demanda_nao_atendida"],
+    )
+    assert (resultado["demanda_nao_atendida"] > 0).any()
+    assert (
+        resultado.loc[resultado["demanda_nao_atendida"] > 0, "dispensacao_unidades"]
+        == 0
+    ).all()
+
+
+def test_validar_consumo_diario_rejeita_balanco_de_demanda_invalido() -> None:
+    datas = pd.date_range("2022-01-01", "2025-12-31", freq="D")
+    consumo = pd.DataFrame(
+        {
+            "data": datas.astype(str),
+            "medicamento_id": ["med_a"] * len(datas),
+            "consumo_unidades": [10.0] * len(datas),
+            "dispensacao_unidades": [7.0] * len(datas),
+            "demanda_nao_atendida": [1.0] * len(datas),
+            "entradas_unidades": [0.0] * len(datas),
+            "estoque_disponivel": [0.0] * len(datas),
+        }
+    )
+    referencia = pd.DataFrame({"medicamento_id": ["med_a"]})
+
+    with pytest.raises(ValueError, match="dispensacao_unidades mais demanda_nao_atendida"):
+        validar_consumo_diario(consumo, referencia)

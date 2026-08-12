@@ -52,7 +52,9 @@ Definido na Issue #1 (kickoff). O dado é dividido em 5 tabelas — evita repeti
 |---|---|---|
 | `data` | date (YYYY-MM-DD) | Data da observação |
 | `medicamento_id` | string | Chave do medicamento (ver tabela da seção 0) |
-| `consumo_unidades` | float | Unidades consumidas no dia — **variável alvo do modelo** |
+| `consumo_unidades` | float | Demanda latente no dia: unidades que seriam consumidas se houvesse estoque suficiente — **variável alvo do modelo** |
+| `dispensacao_unidades` | float | Unidades efetivamente dispensadas no dia; nunca supera `consumo_unidades` nem o saldo disponível antes da saída. |
+| `demanda_nao_atendida` | float | Parte da demanda latente não dispensada por ruptura. Vale `consumo_unidades - dispensacao_unidades`. |
 | `estoque_disponivel` | float | Estoque disponível ao final do dia |
 | `entradas_unidades` | float | Unidades recebidas no dia (reposição) |
 | `ocupacao_leitos_pct` | float (0–100) | Ocupação de leitos do setor no dia (dado interno sintético) |
@@ -103,6 +105,8 @@ Definido na Issue #1 (kickoff). O dado é dividido em 5 tabelas — evita repeti
 ### Dataset de modelagem (consolidado pela Issue #7)
 
 Para features/modelo, `consumo_diario.csv` (1.1) e `externos_diarios.csv` (1.2) são unidos por `data` em `data/processed/consumo_medicamentos.csv` — esse é o arquivo que a Issue #7 gera e que as Issues #8–#13 consomem. As tabelas 1.3, 1.4 e 1.5 são consumidas diretamente pelo motor de recomendação (Issues #14–#16), não entram no pipeline de modelagem.
+
+**Semântica de ruptura (Issue #60):** o modelo prevê `consumo_unidades`, isto é, a demanda que o hospital precisa atender, e não a dispensação observada que pode estar censurada por falta de estoque. `dispensacao_unidades` e `demanda_nao_atendida` são sinais operacionais para auditoria de ruptura e para a avaliação de impacto; não são features preditivas do modelo atual.
 
 Formato de arquivo: CSV (trocar para parquet depois se performance for um problema — não é esperado ser, no volume do MVP).
 
@@ -226,3 +230,4 @@ Registrar aqui sempre que um contrato mudar depois de combinado, com data e quem
 | 2026-08-12 | Melhoria pós-#13 | Período histórico estendido de 2 para 4 anos (2022-01-01 a 2025-12-31, 1.461 dias) — mais ciclos sazonais para o modelo aprender. Todos os dados externos/sintéticos regenerados (`data/external/*`, `data/processed/*`). Quem já tinha o dataset antigo localmente deve rodar `git pull` e conferir os arquivos em `data/` de novo | Todos |
 | 2026-08-12 | Issue #53 | Formalizada a invariante soma(lotes) == estoque_disponivel (tabela 1.4); risco de vencimento não depende mais de `prazo_entrega_dias`, compara cada lote ao consumo esperado até sua validade. `lotes.csv` regenerado — quem tinha o dataset local deve rodar `git pull` de novo | data_ingestion, recommendation, dashboard |
 | 2026-08-12 | Issue #58 | Adicionados estados latentes persistentes de surto (cadeia de Markov, 2 processos compartilhados por categoria sensível) na geração de `consumo_unidades` — episódios de dias/semanas em vez de só ruído i.i.d. Schema não muda, mas os valores de `consumo_diario.csv`/`consumo_medicamentos.csv`/`lotes.csv`/`pedidos_pendentes.csv` mudam (mesma seed, lógica diferente) — quem tinha o dataset local deve rodar `git pull` de novo. Comparação de algoritmos/tuning do modelo NÃO foi re-executada (fora do escopo desta issue) | data_ingestion, models, evaluation |
+| 2026-08-12 | Issue #60 | `consumo_unidades` foi formalizado como demanda latente. Adicionadas `dispensacao_unidades` e `demanda_nao_atendida` para tornar rupturas auditáveis, sem censurar o alvo do modelo | data_ingestion, models, evaluation |

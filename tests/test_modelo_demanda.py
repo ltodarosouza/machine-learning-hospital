@@ -4,6 +4,7 @@ import pandas as pd
 
 from src.features.pipeline import gerar_features
 from src.models.modelo_demanda import (
+    _colunas_preditivas,
     avaliar_validacao_temporal,
     prever_demanda,
     treinar_modelo,
@@ -49,3 +50,22 @@ def test_validacao_temporal_usa_apenas_historico_antes_do_corte() -> None:
     assert len(comparacao) == 14
     assert comparacao.attrs["mae"] >= 0
     assert (pd.to_datetime(comparacao["data_previsao"]) > pd.Timestamp("2025-03-08")).all()
+
+
+def test_colunas_operacionais_de_ruptura_nao_entram_como_features() -> None:
+    colunas = _colunas_preditivas(
+        pd.DataFrame(
+            columns=[
+                "data",
+                "medicamento_id",
+                "consumo_unidades",
+                "dispensacao_unidades",
+                "demanda_nao_atendida",
+                "feat_lag_1d",
+            ]
+        )
+    )
+
+    assert "feat_lag_1d" in colunas
+    assert "dispensacao_unidades" not in colunas
+    assert "demanda_nao_atendida" not in colunas

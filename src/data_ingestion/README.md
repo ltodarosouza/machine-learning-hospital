@@ -31,6 +31,13 @@ Saída (todas em `data/processed/`, commitadas — ver `.gitignore`, dado sinté
 - `lotes.csv` — contrato 1.4 (lotes em estoque, com validade)
 - `pedidos_pendentes.csv` — contrato 1.5 (pedidos em trânsito no fim do período)
 
+**Demanda e ruptura (Issue #60):** `consumo_unidades` representa a demanda
+latente, inclusive quando o estoque não era suficiente para atendê-la. A
+simulação registra separadamente `dispensacao_unidades` (o que saiu de fato) e
+`demanda_nao_atendida` (a diferença por ruptura). O modelo continua prevendo a
+demanda latente; as duas novas colunas são operacionais e não entram como
+features preditivas.
+
 **Importante — números de base são premissas do time, não dados reais:** consumo médio diário por medicamento, preços e prazos de entrega em `MEDICAMENTOS_REF` (dentro do script) são estimativas de ordem de grandeza para o MVP fazer sentido, não vieram de nenhum hospital real. Isso é consistente com o framing já adotado no projeto (ver `docs/negocio/CONTEXTO.md`, seção de cuidado com números de impacto) — se questionado na banca, a resposta é "dataset sintético calibrado com padrões plausíveis, não dado real".
 
 **Estados latentes persistentes de surto (Issue #58):** até aqui, a única variação de curto prazo era ruído independente a cada dia — o que faz o previsor "ótimo" ser praticamente a própria média-base, limitando estruturalmente o quanto um modelo de ML consegue melhorar sobre uma média móvel simples (ver discussão que originou a Issue #58, e o resultado modesto documentado em `src/models/README.md`). Agora existem 2 processos de "intensidade de surto" (uma cadeia de Markov de 3 estados: normal/elevado/surto — `gerar_estado_surto`), um compartilhado por todos os medicamentos sensíveis a clima (respiratórios) e outro por todos sensíveis a dengue — porque um surto de verdade afeta vários medicamentos ao mesmo tempo, não um só. Episódios fora do "normal" duram, em média, ~14 dias (mediana 10), dentro da faixa de 1-4 semanas — não é mais um sorteio novo por dia. Isso não elimina o ruído diário, só deixa de ser a única fonte de variação de curto prazo.

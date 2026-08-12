@@ -240,16 +240,26 @@ def gerar_consumo_diario(externos: pd.DataFrame, medicamentos_ref: pd.DataFrame,
 # ---------------------------------------------------------------------------
 
 
-def simular_estoque(consumo_diario: pd.DataFrame, medicamentos_ref: pd.DataFrame, rng: np.random.Generator) -> pd.DataFrame:
+def simular_estoque(
+    consumo_diario: pd.DataFrame,
+    medicamentos_ref: pd.DataFrame,
+    rng: np.random.Generator,
+) -> pd.DataFrame:
+    """Simula saldo e torna auditavel a censura causada por uma ruptura.
+
+    ``consumo_unidades`` e a demanda latente gerada antes da politica de
+    estoque: e o alvo que o modelo deve prever. A dispensacao, por outro lado,
+    nunca pode ultrapassar o saldo disponivel apos as entradas do dia.
+    """
     resultado = []
     for i, item in medicamentos_ref.iterrows():
         rng_item = np.random.default_rng(SEED + 1000 + i)
         serie = consumo_diario[consumo_diario["medicamento_id"] == item["medicamento_id"]].sort_values("data")
-        consumo = serie["consumo_unidades"].to_numpy()
-        n = len(consumo)
+        demanda = serie["consumo_unidades"].to_numpy()
+        n = len(demanda)
 
         prazo = int(item["prazo_entrega_dias"])
-        media_movel_consumo = pd.Series(consumo).rolling(14, min_periods=1).mean().to_numpy()
+        media_movel_consumo = pd.Series(demanda).rolling(14, min_periods=1).mean().to_numpy()
 
         # Ponto de pedido "ingênuo": reordena quando o estoque cobre menos que o
         # prazo de entrega + 3 dias de folga, sem estoque de segurança calculado
@@ -259,6 +269,8 @@ def simular_estoque(consumo_diario: pd.DataFrame, medicamentos_ref: pd.DataFrame
 
         estoque = np.zeros(n)
         entradas = np.zeros(n)
+        dispensacao = np.zeros(n)
+        demanda_nao_atendida = np.zeros(n)
         pedidos_em_transito = []  # lista de (dia_chegada, quantidade)
 
         estoque_atual = media_movel_consumo[0] * (prazo + 10) if n > 0 else 0.0
@@ -268,9 +280,9 @@ def simular_estoque(consumo_diario: pd.DataFrame, medicamentos_ref: pd.DataFrame
             entradas[t] = chegando_hoje
             estoque_atual += chegando_hoje
 
-            estoque_atual -= consumo[t]
-            # Estoque não pode ser negativo (ruptura = fica em 0, demanda não atendida é perdida)
-            estoque_atual = max(estoque_atual, 0.0)
+            dispensacao[t] = min(demanda[t], estoque_atual)
+            demanda_nao_atendida[t] = demanda[t] - dispensacao[t]
+            estoque_atual -= dispensacao[t]
             estoque[t] = estoque_atual
 
             if estoque_atual < ponto_pedido[t] and not any(True for _ in pedidos_em_transito):
@@ -285,7 +297,9 @@ def simular_estoque(consumo_diario: pd.DataFrame, medicamentos_ref: pd.DataFrame
                 {
                     "data": serie["data"].to_numpy(),
                     "medicamento_id": item["medicamento_id"],
-                    "consumo_unidades": consumo,
+                    "consumo_unidades": demanda,
+                    "dispensacao_unidades": dispensacao,
+                    "demanda_nao_atendida": demanda_nao_atendida,
                     "entradas_unidades": entradas,
                     "estoque_disponivel": estoque,
                 }
@@ -477,9 +491,29 @@ def validar_consumo_diario(df: pd.DataFrame, medicamentos_ref: pd.DataFrame) -> 
 
     if (df["consumo_unidades"] < 0).any():
         raise ValueError("consumo_unidades negativo encontrado.")
+    if (df["dispensacao_unidades"] < 0).any():
+        raise ValueError("dispensacao_unidades negativa encontrada.")
+    if (df["demanda_nao_atendida"] < 0).any():
+        raise ValueError("demanda_nao_atendida negativa encontrada.")
+    if not np.allclose(
+        df["consumo_unidades"],
+        df["dispensacao_unidades"] + df["demanda_nao_atendida"],
+    ):
+        raise ValueError(
+            "consumo_unidades deve ser igual a dispensacao_unidades mais demanda_nao_atendida."
+        )
+    if (df["dispensacao_unidades"] > df["consumo_unidades"]).any():
+        raise ValueError("dispensacao_unidades nao pode superar a demanda latente.")
     if (df["estoque_disponivel"] < 0).any():
         raise ValueError("estoque_disponivel negativo encontrado.")
-    if df[["consumo_unidades", "entradas_unidades", "estoque_disponivel"]].isna().any().any():
+    colunas_numericas = [
+        "consumo_unidades",
+        "dispensacao_unidades",
+        "demanda_nao_atendida",
+        "entradas_unidades",
+        "estoque_disponivel",
+    ]
+    if df[colunas_numericas].isna().any().any():
         raise ValueError("Valores nulos encontrados em consumo_diario.")
 
 
@@ -533,7 +567,17 @@ def main() -> None:
 
     consumo_diario = consumo_com_estoque.merge(sinais_internos, on="data", how="left")
     consumo_diario = consumo_diario[
-        ["data", "medicamento_id", "consumo_unidades", "estoque_disponivel", "entradas_unidades", "ocupacao_leitos_pct", "atendimentos_ps"]
+        [
+            "data",
+            "medicamento_id",
+            "consumo_unidades",
+            "dispensacao_unidades",
+            "demanda_nao_atendida",
+            "estoque_disponivel",
+            "entradas_unidades",
+            "ocupacao_leitos_pct",
+            "atendimentos_ps",
+        ]
     ]
 
     lotes = gerar_lotes(consumo_com_estoque, medicamentos_ref, rng)
@@ -558,6 +602,10 @@ def main() -> None:
 
     total_rupturas = int((consumo_diario["estoque_disponivel"] == 0).sum())
     print(f"Dias-medicamento com estoque zerado (ruptura) no período: {total_rupturas}")
+    print(
+        "Unidades de demanda nao atendida no periodo: "
+        f"{consumo_diario['demanda_nao_atendida'].sum():.0f}"
+    )
 
 
 if __name__ == "__main__":
