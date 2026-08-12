@@ -105,11 +105,21 @@ XGBoost retunado), documentado em
 [`docs/arquitetura/RESULTADOS_MODELAGEM.md`](../../docs/arquitetura/RESULTADOS_MODELAGEM.md):
 MAE agregado de **9.43** unidades/dia, **1.8%** menor que o baseline (9.60),
 vencendo em 11 dos 20 medicamentos. É uma vantagem modesta — reportado sem
-maquiagem, como todo o resto desta avaliação. Ganhos adicionais provavelmente
-exigem mais dado real (não sintético) ou features novas, não só mais tuning:
-ver a resposta sobre "meta de 10%" na conversa do projeto para o racional
-completo (parte do erro é ruído que o próprio gerador sintético injeta de
-propósito, não é um teto que dá para prever).
+maquiagem, como todo o resto desta avaliação.
+
+**Por que o ganho é modesto — e o que fazer a respeito:** análise técnica do
+time identificou que o gerador sintético atual (`gerar_dataset_sintetico.py`)
+não tem fatores latentes persistentes além dos sinais externos diários —
+consumo é `média_base(covariáveis) × ruído i.i.d.`, então o previsor
+teoricamente ótimo já é a própria média-base, que uma média móvel simples
+consegue aproximar quase tão bem quanto um modelo de ML. Mais tuning não
+resolve isso; é uma limitação estrutural do dado, não do modelo. Quatro
+issues abrem o caminho para corrigir isso, mexendo no gerador (não no
+modelo): **#58** (estados latentes de surto com duração), **#59** (corrige
+causalidade invertida de `atendimentos_ps`), **#60** (separa demanda
+latente de dispensação observada em rupturas) e **#61** (classes de
+persistência por medicamento, ruído autocorrelacionado). Depois delas, vale
+reabrir esta comparação de algoritmos/tuning para medir o efeito combinado.
 
 **Tamanho do dataset, para contexto:** 1.461 dias (4 anos) × 20 medicamentos =
 29.220 linhas brutas; depois do "aquecimento" das médias móveis de 30 dias,
