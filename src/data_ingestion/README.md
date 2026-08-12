@@ -26,7 +26,7 @@ python src/data_ingestion/gerar_dataset_sintetico.py
 
 Saída (todas em `data/processed/`, commitadas — ver `.gitignore`, dado sintético/reprodutível, não é dado real de hospital nenhum):
 
-- `consumo_diario.csv` — contrato 1.1 (14.620 linhas: 20 medicamentos × 731 dias)
+- `consumo_diario.csv` — contrato 1.1 (29.220 linhas: 20 medicamentos × 1.461 dias, período estendido para 4 anos depois da Issue #13)
 - `medicamentos_ref.csv` — contrato 1.3 (cadastro: nome, categoria, prazo de entrega, preço)
 - `lotes.csv` — contrato 1.4 (lotes em estoque, com validade)
 - `pedidos_pendentes.csv` — contrato 1.5 (pedidos em trânsito no fim do período)

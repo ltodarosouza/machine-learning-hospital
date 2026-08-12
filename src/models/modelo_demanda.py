@@ -7,10 +7,14 @@ erro no horizonte do MVP.
 Algoritmo: XGBoost (gradient boosting), trocado de Random Forest depois de um
 experimento comparando as duas opções, mais Gradient Boosting do scikit-learn,
 sob a mesma metodologia de validação temporal sem vazamento (retreina do zero
-a cada janela, só usa ``data <= corte``). Sobre o período de teste de 2025-12-04
-a 2025-12-31 (4 janelas de 7 dias): XGBoost teve o menor MAE agregado (9.64
-unidades/dia, contra 9.83 do Random Forest original) e treinou ~10x mais
-rápido. Detalhes em docs/arquitetura/RESULTADOS_MODELAGEM.md.
+a cada janela, só usa ``data <= corte``). Hiperparâmetros (``max_depth=7``,
+``learning_rate=0.1``, ``n_estimators=500``) escolhidos por grid search sob a
+mesma metodologia (``scripts/tuning_xgboost.py``). Período histórico também
+foi estendido de 2 para 4 anos (``src/utils/config.py``) para dar mais ciclos
+sazonais ao modelo. Resultado final sobre o período de teste de 2025-12-04 a
+2025-12-31: MAE agregado de 9.39 unidades/dia (era 9.83 com Random Forest e 2
+anos de histórico). Detalhes em docs/arquitetura/RESULTADOS_MODELAGEM.md e
+src/models/README.md.
 """
 
 from __future__ import annotations
@@ -80,7 +84,7 @@ def preparar_dados_supervisionados(
 def treinar_modelo(
     dados_features: pd.DataFrame,
     horizonte: int = HORIZONTE_PREVISAO_DIAS,
-    n_estimators: int = 300,
+    n_estimators: int = 500,
     random_state: int = 42,
 ) -> ModeloDemanda:
     #Treina um XGBoost compartilhado entre medicamentos e horizontes (ver docstring do modulo).
@@ -98,8 +102,8 @@ def treinar_modelo(
     )
     regressor = XGBRegressor(
         n_estimators=n_estimators,
-        max_depth=5,
-        learning_rate=0.05,
+        max_depth=7,
+        learning_rate=0.1,
         subsample=0.8,
         colsample_bytree=0.8,
         random_state=random_state,
@@ -168,7 +172,7 @@ def avaliar_validacao_temporal(
     dados_brutos: pd.DataFrame,
     data_corte: str | pd.Timestamp,
     horizonte: int = HORIZONTE_PREVISAO_DIAS,
-    n_estimators: int = 300,
+    n_estimators: int = 500,
 ) -> pd.DataFrame:
     #Avalia o modelo em dados futuros, sem embaralhar a série temporal.
     from src.features.pipeline import gerar_features

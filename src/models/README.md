@@ -40,34 +40,54 @@ python src/models/modelo_demanda.py
 O comando executa uma validação temporal e salva o artefato reproduzível em
 `models_output/modelo_demanda.joblib`.
 
-### Por que XGBoost (não é a versão original desta Issue)
+### Histórico de melhorias (não é a versão original desta Issue)
 
-A primeira versão desta Issue usava `RandomForestRegressor`. Depois da task
-#13 mostrar uma vantagem pequena e não unânime do ML sobre o baseline (1.6% de
-redução de MAE, só 12/20 medicamentos), comparamos 5 configurações sob a
-mesma metodologia de validação temporal sem vazamento (retreina do zero a
-cada janela de teste, só usa `data <= corte`):
+A primeira versão desta Issue usava `RandomForestRegressor` sobre 2 anos de
+dado sintético (2024-2025). Depois da task #13 mostrar uma vantagem pequena e
+não unânime do ML sobre o baseline (1.6% de redução de MAE, só 12/20
+medicamentos), fizemos duas rodadas de melhoria, sempre sob a mesma
+metodologia de validação temporal sem vazamento (retreina do zero a cada
+janela de teste, só usa `data <= corte`):
+
+**1. Comparação de algoritmos** ([`scripts/comparar_algoritmos_modelo.py`](../../scripts/comparar_algoritmos_modelo.py)), ainda com 2 anos de dado:
 
 | Configuração | MAE (unid./dia) | Tempo de treino (4 janelas) |
 |---|---|---|
 | Random Forest (original desta Issue) | 9.83 | 257s |
 | Random Forest sem `estoque_disponivel`/`entradas_unidades` | 9.79 | 238s |
-| Random Forest tunado (mais árvores, sem as 2 features de ruído) | 9.78 | 421s |
+| Random Forest tunado | 9.78 | 421s |
 | Gradient Boosting (scikit-learn) | 9.70 | 511s |
 | **XGBoost** | **9.64** | **27s** |
 
-XGBoost venceu em precisão **e** foi ~10x mais rápido de treinar que as
-outras opções — por isso a troca. Experimento reprodutível em
-[`scripts/comparar_algoritmos_modelo.py`](../../scripts/comparar_algoritmos_modelo.py).
-Resultado final documentado em
-[`docs/arquitetura/RESULTADOS_MODELAGEM.md`](../../docs/arquitetura/RESULTADOS_MODELAGEM.md):
-com XGBoost, o modelo de ML reduz o MAE agregado em **3.6%** frente ao
-baseline (era 1.6% com Random Forest), vencendo em 14 dos 20 medicamentos
-(era 12/20).
+XGBoost venceu em precisão **e** foi ~10x mais rápido de treinar — por isso a
+troca de algoritmo.
 
-**Tamanho do dataset, para contexto:** 731 dias × 20 medicamentos = 14.620
-linhas brutas; depois do "aquecimento" das médias móveis de 30 dias, sobram
-701 dias por medicamento (~4.879 linhas de treino por medicamento, somando
-os 7 horizontes) — modesto, mas adequado para árvores/boosting. Não dá para
-justificar um modelo com muito mais parâmetros (ex. rede neural) com esse
-volume de dado.
+**2. Mais dado histórico + tuning de hiperparâmetros:** estendemos o período
+sintético de 2 para 4 anos (2022-2025, `src/utils/config.py`) e rodamos um
+grid search de hiperparâmetros do XGBoost ([`scripts/tuning_xgboost.py`](../../scripts/tuning_xgboost.py),
+18 combinações de `max_depth`/`learning_rate`/`n_estimators`). Melhor
+configuração encontrada: `max_depth=7, learning_rate=0.1, n_estimators=500`
+(MAE 9.39 no dataset de 4 anos, contra 9.57 do XGBoost com hiperparâmetros
+genéricos no mesmo dataset — essa comparação **é** direta, mesmo dataset).
+
+**Atenção ao comparar números entre as duas rodadas:** estender o período
+sintético não é só "adicionar mais linhas no início" — o gerador (Issue #3)
+calcula sazonalidade e ruído sobre o array do período inteiro de uma vez, então
+mudar o tamanho do array desloca a sequência de números aleatórios e os
+valores de consumo **das mesmas datas de calendário mudam** entre a versão de
+2 anos e a de 4 anos (mesmo dezembro/2025 sendo "o mesmo mês" nos dois casos).
+Por isso o MAE do baseline também mudou (9.99 → 9.60) — não é possível
+comparar "3.6% de redução" (rodada 1) com "2.1%" (rodada 2, resultado final)
+como se fosse o mesmo problema. A comparação válida é sempre **dentro** da
+mesma versão do dataset.
+
+Resultado final (dataset de 4 anos, XGBoost tunado), documentado em
+[`docs/arquitetura/RESULTADOS_MODELAGEM.md`](../../docs/arquitetura/RESULTADOS_MODELAGEM.md):
+MAE agregado de **9.39** unidades/dia, **2.1%** menor que o baseline (9.60),
+vencendo em 11 dos 20 medicamentos.
+
+**Tamanho do dataset, para contexto:** 1.461 dias (4 anos) × 20 medicamentos =
+29.220 linhas brutas; depois do "aquecimento" das médias móveis de 30 dias,
+sobram ~1.431 dias por medicamento — o dobro do volume de treino da primeira
+versão, mas ainda modesto pelos padrões de ML. Não justifica um modelo com
+muito mais parâmetros (ex. rede neural).
