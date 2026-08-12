@@ -26,7 +26,7 @@ import pandas as pd
 sys.path.append(str(Path(__file__).resolve().parents[2]))
 from src.models.baseline import gerar_previsoes_baseline_periodo
 from src.models.modelo_demanda import avaliar_validacao_temporal
-from src.utils.config import HORIZONTE_PREVISAO_DIAS
+from src.utils.config import HORIZONTE_PREVISAO_DIAS, PERIODO_FIM, PERIODO_INICIO
 
 DADOS_MODELAGEM = Path(__file__).resolve().parents[2] / "data" / "processed" / "consumo_medicamentos.csv"
 SAIDA_METRICAS = Path(__file__).resolve().parents[2] / "docs" / "arquitetura" / "RESULTADOS_MODELAGEM.md"
@@ -49,7 +49,7 @@ def avaliar_modelo_periodo(
     data_inicio_teste: str,
     data_fim_teste: str,
     horizonte: int = HORIZONTE_PREVISAO_DIAS,
-    n_estimators: int = 100,
+    n_estimators: int = 500,
 ) -> pd.DataFrame:
     """Previsões do modelo de ML no período de teste — retreina a cada janela, sem olhar o futuro."""
     inicio = pd.Timestamp(data_inicio_teste)
@@ -102,6 +102,8 @@ def gerar_relatorio_markdown(metricas: pd.DataFrame, data_inicio_teste: str, dat
         "# Resultados da comparação baseline vs. modelo de ML (Issue #13)",
         "",
         f"Período de teste: {data_inicio_teste} a {data_fim_teste}. Nenhum dos dois métodos viu dado desse período durante o treino/cálculo — o baseline usa só a janela móvel anterior a cada corte, o modelo é retreinado do zero a cada janela usando só `data <= corte`.",
+        "",
+        f"Dataset de treino/teste: `data/processed/consumo_medicamentos.csv`, período {PERIODO_INICIO} a {PERIODO_FIM} (ver `src/utils/config.py`). **Este relatório é gerado do zero a cada execução de `comparar_modelos.py`** — os números não são comparáveis com versões anteriores deste arquivo se o dataset ou os hiperparâmetros do modelo mudaram entre execuções (ver histórico de melhorias em `src/models/README.md`).",
         "",
         "## Resultado agregado (todos os 20 medicamentos)",
         "",

@@ -125,7 +125,7 @@ def gerar_consumo_diario(externos: pd.DataFrame, medicamentos_ref: pd.DataFrame,
     fator_dia_semana = 1.0 + 0.10 * dia_semana.isin([5, 6]).astype(float) + 0.05 * (dia_semana == 0).astype(float)
     fator_feriado = 1.0 + 0.15 * externos["feriado"].astype(float)
 
-    # Tendência leve de crescimento ao longo dos 2 anos (mais atendimentos no fim do período)
+    # Tendência leve de crescimento ao longo do período (mais atendimentos no fim do período)
     progresso = np.linspace(0, 1, n_dias)
     fator_tendencia = 1.0 + 0.08 * progresso
 
