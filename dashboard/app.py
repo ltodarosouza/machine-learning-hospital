@@ -126,6 +126,18 @@ def mostrar_detalhe(dados: pd.DataFrame) -> None:
             dados["medicamento_id"].eq(identificador), "nome"
         ].iloc[0],
     )
+    medicamento = dados.loc[dados["medicamento_id"].eq(selecionado)].iloc[0]
+
+    st.subheader(f"{medicamento['nome']} · {medicamento['categoria']}")
+    primeira, segunda, terceira = st.columns(3)
+    primeira.metric("Compra recomendada", f"{medicamento['compra_recomendada']:,.0f} un.")
+    segunda.metric("Risco de falta", rotulo_risco(medicamento["risco_falta"]))
+    terceira.metric("Risco de vencimento", rotulo_risco(medicamento["risco_vencimento"]))
+
+    st.info(medicamento["justificativa"], icon="💡")
+    st.caption(
+        "Os valores desta tela são simulados. A integração com dados reais será feita na Issue #20."
+    )
 
 
 @st.cache_data(show_spinner="Calculando previsões históricas do modelo...")
@@ -212,20 +224,6 @@ def mostrar_previsao_demanda() -> None:
         "MAE: erro absoluto médio em unidades/dia. MAPE: erro percentual médio. "
         "A avaliação consolidada em quatro janelas está documentada na Issue #13."
     )
-    medicamento = dados.loc[dados["medicamento_id"].eq(selecionado)].iloc[0]
-
-    st.subheader(f"{medicamento['nome']} · {medicamento['categoria']}")
-    primeira, segunda, terceira = st.columns(3)
-    primeira.metric("Compra recomendada", f"{medicamento['compra_recomendada']:,.0f} un.")
-    segunda.metric("Risco de falta", rotulo_risco(medicamento["risco_falta"]))
-    terceira.metric("Risco de vencimento", rotulo_risco(medicamento["risco_vencimento"]))
-
-    st.info(medicamento["justificativa"], icon="💡")
-    st.caption(
-        "Os valores desta tela são simulados. A integração com dados reais será feita na Issue #20."
-    )
-
-
 def main() -> None:
     st.set_page_config(page_title="ML Hospital", page_icon="🏥", layout="wide")
     st.sidebar.title("🏥 ML Hospital")
