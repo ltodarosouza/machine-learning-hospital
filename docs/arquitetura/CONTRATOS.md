@@ -109,6 +109,23 @@ Formato de arquivo: CSV (trocar para parquet depois se performance for um proble
 - **Entrada:** schema da seção 1.
 - **Saída:** dataframe com colunas originais + features derivadas (ex.: médias móveis, lags, variáveis sazonais). Nomear features com prefixo claro (ex.: `feat_media_movel_7d`). Documentar aqui a lista final de features geradas.
 
+**Features de calendário e variáveis externas (Issue #9, `src/features/calendario_externas.py`):**
+
+| Feature | Descrição |
+|---|---|
+| `feat_dia_semana` | Dia da semana (0=segunda ... 6=domingo) |
+| `feat_fim_de_semana` | Booleano: sábado ou domingo |
+| `feat_mes` | Mês (1-12), sazonalidade anual |
+| `feat_feriado` | Cópia de `feriado`, renomeada para o padrão `feat_*` |
+| `feat_casos_dengue_lag7` | Casos de dengue de 7 dias atrás (efeito de dengue na demanda é defasado, não imediato) — nulo nos primeiros 7 dias de cada medicamento, tratado na Issue #10 |
+| `feat_temperatura_media_norm` | Temperatura normalizada (z-score) |
+| `feat_chuva_mm_norm` | Chuva normalizada (z-score) |
+| `feat_casos_dengue_regiao_norm` | Casos de dengue normalizados (z-score) |
+
+**Atenção para a Issue #12 (modelo):** a normalização usa média/desvio do `df` recebido por `gerar_features_normalizadas`. Se esse `df` incluir dado de teste, a normalização vaza estatística do futuro para o passado — chamar essa função só com o período de treino, e aplicar a mesma média/desvio no teste (a função retorna as estatísticas em `df.attrs["estatisticas_normalizacao"]`).
+
+**Features de série temporal (Issue #8):** pendente, documentar aqui quando pronta — não sobrescrever a tabela acima, só adicionar.
+
 ## 3. Contrato de entrada/saída de `models`
 
 - **Entrada:** saída de `features`, filtrada por `medicamento_id`.
