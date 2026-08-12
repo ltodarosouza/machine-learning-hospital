@@ -37,3 +37,11 @@ Dataset de treino/teste: `data/processed/consumo_medicamentos.csv`, período 202
 | soro_fisiologico | 19.69 | 19.00 | 13.3% | 12.9% | Sim |
 | soro_ringer | 12.03 | 11.26 | 16.3% | 14.7% | Sim |
 | tramadol | 3.45 | 3.31 | 16.3% | 16.3% | Sim |
+
+## Reprodutibilidade
+
+- **Commit:** `636a87f`
+- **Período avaliado:** 2025-12-04 a 2025-12-31 (dataset completo: 2022-01-01 a 2025-12-31)
+- **Baseline:** média móvel de 14 dias (`src/models/baseline.py::prever_baseline`)
+- **Modelo de ML:** XGBoost (`XGBRegressor`, `max_depth=5, learning_rate=0.1, n_estimators=500, subsample=0.8, colsample_bytree=0.8`, `random_state=42`) — ver `src/models/modelo_demanda.py::treinar_modelo`
+- **Comando para regenerar este relatório:** `python src/evaluation/comparar_modelos.py`
