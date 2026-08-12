@@ -1,0 +1,9 @@
+medicamento_id,nome,categoria,compra_recomendada,risco_falta,risco_vencimento,justificativa
+adrenalina_inj,Adrenalina injetável,Emergência/controlado,180,alto,baixo,"Risco de falta: o estoque cobre 4 dias, enquanto o fornecedor leva 10 dias. Recomenda-se antecipar o pedido de 180 unidades."
+soro_fisiologico,"Soro Fisiológico 0,9%",Suporte/hidratação,420,alto,baixo,"Risco de falta: o estoque atual não cobre a demanda prevista para os próximos 7 dias. Recomenda-se comprar 420 unidades."
+ceftriaxona_inj,Ceftriaxona injetável,Antibiótico,85,médio,baixo,"A cobertura de estoque está próxima do prazo de entrega. Recomenda-se repor 85 unidades para manter o estoque de segurança."
+ondansetrona,Ondansetrona,Gastro,0,baixo,alto,"Risco de vencimento: há unidades com validade próxima e o estoque atual atende à demanda prevista. Não realizar nova compra."
+salbutamol,Salbutamol (spray/nebulização),Respiratório,120,médio,baixo,"A previsão de aumento na demanda respiratória reduz a cobertura do estoque. Recomenda-se comprar 120 unidades."
+paracetamol,Paracetamol,Dor/febre,250,médio,baixo,"O consumo recente está acima da média e o estoque ficará abaixo do nível de segurança. Recomenda-se comprar 250 unidades."
+dipirona,Dipirona,Dor/febre,0,baixo,médio,"Há estoque suficiente para a demanda prevista, mas parte do lote vence em breve. Priorize o consumo do lote mais antigo."
+amoxicilina,Amoxicilina,Antibiótico,60,baixo,baixo,"O estoque cobre o período de entrega. A compra de 60 unidades mantém o nível de segurança recomendado."

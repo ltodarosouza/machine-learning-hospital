@@ -24,8 +24,22 @@ data/external/*
 *.xlsx
 *.parquet
 !data/**/sample_*.csv
-# calendario.csv é dado público, pequeno e 100% reprodutível (biblioteca `holidays`) — vale commitar
+# calendario.csv, clima.csv e epidemiologia.csv são dados públicos, pequenos e 100% reprodutíveis — vale commitar
 !data/external/calendario.csv
+!data/external/clima.csv
+!data/external/epidemiologia.csv
+
+# Dataset sintético (Issue #3): não é dado real/sensível de nenhum hospital,
+# é 100% gerado por código com seed fixa (reprodutível), pequeno o suficiente
+# para commitar, e é a base que todo o resto do projeto (features, modelo,
+# recomendação, dashboard) precisa para funcionar sem cada pessoa ter que
+# rodar o gerador antes de começar.
+!data/processed/consumo_diario.csv
+!data/processed/medicamentos_ref.csv
+!data/processed/lotes.csv
+!data/processed/pedidos_pendentes.csv
+!data/external/externos_diarios.csv
+!data/processed/consumo_medicamentos.csv
 
 # Modelos treinados (pesados, não versionar binário)
 *.pkl

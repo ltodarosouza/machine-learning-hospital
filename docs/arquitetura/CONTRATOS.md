@@ -177,3 +177,5 @@ Registrar aqui sempre que um contrato mudar depois de combinado, com data e quem
 |---|---|---|---|
 | 2026-08-12 | Kickoff (Issue #1) | Fechado escopo do MVP (seção 0) e schema completo em 5 tabelas (seção 1), horizonte de previsão travado em 7 dias | Todos |
 | 2026-08-12 | Issue #8 | Documentadas as features temporais (lags e médias móveis) e a manutenção de `NaN` sem histórico suficiente | Features, models, evaluation |
+| 2026-08-12 | Issue #4 | Fonte de clima trocada de INMET para Open-Meteo (mesmo contrato de saída, seção 1.2 não muda) — detalhes em `FONTES_DADOS.md` | data_ingestion |
+| 2026-08-12 | Issues #3/#7 | Pipeline de dados completo: `data/processed/consumo_medicamentos.csv` (schema da seção 1, consolidado) pronto e commitado — Issues #8+ já podem consumir dado real (sintético) em vez de mock | features, models |

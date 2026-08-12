@@ -1,0 +1,8 @@
+medicamento_id,pedido_id,quantidade,data_pedido,data_prevista_entrega
+paracetamol,paracetamol-P001,2520.0,2025-12-28,2026-01-02
+predinisolona,predinisolona-P001,520.0,2025-12-27,2026-01-03
+ondansetrona,ondansetrona-P001,210.0,2025-12-28,2026-01-03
+azitromicina,azitromicina-P001,640.0,2025-12-27,2026-01-03
+diclofenaco,diclofenaco-P001,540.0,2025-12-30,2026-01-04
+loratadina,loratadina-P001,450.0,2025-12-28,2026-01-03
+diazepam,diazepam-P001,270.0,2025-12-22,2026-01-03
