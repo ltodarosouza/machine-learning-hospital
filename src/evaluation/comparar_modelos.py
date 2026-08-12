@@ -49,7 +49,7 @@ def avaliar_modelo_periodo(
     data_inicio_teste: str,
     data_fim_teste: str,
     horizonte: int = HORIZONTE_PREVISAO_DIAS,
-    n_estimators: int = 100,
+    n_estimators: int = 300,
 ) -> pd.DataFrame:
     """Previsões do modelo de ML no período de teste — retreina a cada janela, sem olhar o futuro."""
     inicio = pd.Timestamp(data_inicio_teste)
