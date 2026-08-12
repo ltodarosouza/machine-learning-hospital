@@ -118,11 +118,11 @@ Formato de arquivo: CSV (trocar para parquet depois se performance for um proble
 | `feat_mes` | Mês (1-12), sazonalidade anual |
 | `feat_feriado` | Cópia de `feriado`, renomeada para o padrão `feat_*` |
 | `feat_casos_dengue_lag7` | Casos de dengue de 7 dias atrás (efeito de dengue na demanda é defasado, não imediato) — nulo nos primeiros 7 dias de cada medicamento, tratado na Issue #10 |
-| `feat_temperatura_media_norm` | Temperatura normalizada (z-score) |
-| `feat_chuva_mm_norm` | Chuva normalizada (z-score) |
-| `feat_casos_dengue_regiao_norm` | Casos de dengue normalizados (z-score) |
+| `feat_temperatura_media_norm` | Temperatura normalizada por z-score causal (somente dias anteriores) |
+| `feat_chuva_mm_norm` | Chuva normalizada por z-score causal (somente dias anteriores) |
+| `feat_casos_dengue_regiao_norm` | Casos de dengue normalizados por z-score causal (somente dias anteriores) |
 
-**Atenção para a Issue #12 (modelo):** a normalização usa média/desvio do `df` recebido por `gerar_features_normalizadas`. Se esse `df` incluir dado de teste, a normalização vaza estatística do futuro para o passado — chamar essa função só com o período de treino, e aplicar a mesma média/desvio no teste (a função retorna as estatísticas em `df.attrs["estatisticas_normalizacao"]`).
+As features normalizadas usam exclusivamente média e desvio-padrão de datas anteriores do mesmo medicamento, evitando vazamento temporal mesmo quando o pipeline recebe treino e teste juntos.
 
 
 ### Features de série temporal (Issue #8)
@@ -195,3 +195,4 @@ Registrar aqui sempre que um contrato mudar depois de combinado, com data e quem
 | 2026-08-12 | Issue #8 | Documentadas as features temporais (lags e médias móveis) e a manutenção de `NaN` sem histórico suficiente | Features, models, evaluation |
 | 2026-08-12 | Issue #4 | Fonte de clima trocada de INMET para Open-Meteo (mesmo contrato de saída, seção 1.2 não muda) — detalhes em `FONTES_DADOS.md` | data_ingestion |
 | 2026-08-12 | Issues #3/#7 | Pipeline de dados completo: `data/processed/consumo_medicamentos.csv` (schema da seção 1, consolidado) pronto e commitado — Issues #8+ já podem consumir dado real (sintético) em vez de mock | features, models |
+| 2026-08-12 | Correção de normalização | Features externas passaram a usar estatísticas apenas de datas anteriores, eliminando vazamento temporal | features, models, evaluation |

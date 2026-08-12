@@ -51,3 +51,20 @@ def test_saida_contem_features_dos_dois_modulos() -> None:
         "feat_temperatura_media_norm",
     }
     assert esperadas.issubset(saida.columns)
+
+
+def test_normalizacao_externa_nao_usa_estatisticas_de_datas_futuras() -> None:
+    dados = _dados_exemplo()
+    dados_futuro_alterado = dados.copy()
+    dados_futuro_alterado.loc[30:, "temperatura_media"] = 1_000.0
+
+    base = gerar_features(dados)
+    com_futuro_alterado = gerar_features(dados_futuro_alterado)
+
+    colunas = ["data", "feat_temperatura_media_norm"]
+    corte = pd.Timestamp("2025-01-30")
+    esperado = base.loc[base["data"] <= corte, colunas].reset_index(drop=True)
+    observado = com_futuro_alterado.loc[
+        com_futuro_alterado["data"] <= corte, colunas
+    ].reset_index(drop=True)
+    pd.testing.assert_frame_equal(esperado, observado)
