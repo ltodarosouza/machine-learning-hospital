@@ -15,3 +15,4 @@ pytest
 # Utilitários
 python-dotenv
 requests
+holidays
