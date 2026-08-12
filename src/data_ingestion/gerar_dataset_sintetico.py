@@ -38,6 +38,7 @@ sys.path.append(str(Path(__file__).resolve().parents[2]))
 from src.utils.config import PERIODO_INICIO, PERIODO_FIM
 
 SEED = 42
+ATENDIMENTOS_BASE_DIA = 95.0
 
 DIR_PROCESSED = Path(__file__).resolve().parents[2] / "data" / "processed"
 DIR_EXTERNAL = Path(__file__).resolve().parents[2] / "data" / "external"
@@ -93,10 +94,69 @@ COLUNAS_REF = [
     "_sensivel_dengue",
 ]
 
+# ---------------------------------------------------------------------------
+# Classes de persistência por medicamento (Issue #61).
+#
+# Até aqui, o ruído de curto prazo era log-normal *independente a cada dia*
+# para todo medicamento igualmente — mas medicamentos diferentes têm
+# dinâmicas de consumo bem diferentes na prática: itens de alto volume e uso
+# rotineiro (soros, analgésicos comuns) variam suavemente dia a dia; itens
+# ligados a picos concentrados (respiratórios) têm rajadas que duram alguns
+# dias; itens raros/de emergência (controlados) são dominados por eventos
+# pontuais, sem padrão de curto prazo para aprender.
+#
+# `phi` é o coeficiente de autocorrelação de um processo AR(1) em escala
+# log (ver `gerar_ruido_ar1`): phi perto de 1 = memória forte (o ruído de
+# hoje parece com o de ontem); phi perto de 0 = praticamente independente
+# (equivalente ao comportamento antigo, i.i.d.). `sigma_estacionario` é
+# calibrado para manter a mesma amplitude de variação de antes (0.12) em
+# regime permanente, independente de `phi` — a mudança é só de memória, não
+# de volatilidade total.
+# ---------------------------------------------------------------------------
+
+PERFIS_PERSISTENCIA = {
+    "continuo": {"phi": 0.85, "sigma_estacionario": 0.12},
+    "intermitente": {"phi": 0.55, "sigma_estacionario": 0.12},
+    "erratico": {"phi": 0.05, "sigma_estacionario": 0.12},
+}
+CATEGORIAS_PERFIL_CONTINUO = {"Dor/febre", "Suporte/hidratação"}
+CATEGORIAS_PERFIL_ERRATICO = {"Emergência/controlado"}
+# Todas as demais categorias (Respiratório, Respiratório/alergia, Gastro,
+# Antibiótico, Dor/inflamação, Dor, Alergia, Dor/febre (pediátrico)) caem em
+# "intermitente" por padrão — meio-termo razoável sem precisar de uma regra
+# dedicada para cada uma.
+
+
+def _perfil_persistencia_por_categoria(categoria: str) -> str:
+    if categoria in CATEGORIAS_PERFIL_CONTINUO:
+        return "continuo"
+    if categoria in CATEGORIAS_PERFIL_ERRATICO:
+        return "erratico"
+    return "intermitente"
+
 
 def montar_medicamentos_ref() -> pd.DataFrame:
     df = pd.DataFrame(MEDICAMENTOS_REF, columns=COLUNAS_REF)
+    df["_perfil_persistencia"] = df["categoria"].map(_perfil_persistencia_por_categoria)
     return df
+
+
+def gerar_ruido_ar1(n_dias: int, phi: float, sigma_estacionario: float, rng: np.random.Generator) -> np.ndarray:
+    """Ruído multiplicativo com memória: AR(1) em escala log, depois exponenciado.
+
+    Mantém o ruído sempre positivo (como o log-normal i.i.d. anterior) e
+    centrado em 1.0 (não desloca a média-base), mas com autocorrelação
+    controlada por `phi` em vez de ser um sorteio novo a cada dia.
+    """
+    sigma_inovacao = sigma_estacionario * np.sqrt(max(1.0 - phi**2, 1e-9))
+    inovacoes = rng.normal(0.0, sigma_inovacao, size=n_dias)
+
+    log_ruido = np.empty(n_dias)
+    log_ruido[0] = rng.normal(0.0, sigma_estacionario)  # já parte da distribuição estacionária
+    for t in range(1, n_dias):
+        log_ruido[t] = phi * log_ruido[t - 1] + inovacoes[t]
+
+    return np.exp(log_ruido)
 
 
 def carregar_externos() -> pd.DataFrame:
@@ -112,25 +172,80 @@ def carregar_externos() -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
+# 1.5. Estados latentes persistentes de surto (Issue #58)
+#
+# Antes desta issue, a única fonte de variação de curto prazo era ruído
+# i.i.d. (log-normal independente por dia). Isso significa que o previsor
+# teoricamente ótimo já era a própria média-base — nenhum modelo de ML
+# consegue prever ruído i.i.d. por construção, o que limitava estruturalmente
+# o quanto o modelo (Issue #12) conseguia bater o baseline (Issue #13).
+#
+# Aqui adicionamos um processo latente com memória: uma cadeia de Markov de
+# 3 estados (normal / elevado / surto) que simula surtos com duração real de
+# alguns dias a algumas semanas — não um sorteio novo a cada dia. Dois
+# processos independentes são gerados (não por medicamento, mas
+# compartilhados por categoria sensível, como um "surto" de verdade afetaria
+# vários medicamentos ao mesmo tempo): um para itens sensíveis a
+# clima/respiratório, outro para itens sensíveis a dengue/arboviroses,
+# reaproveitando `_sensivel_clima`/`_sensivel_dengue` já existentes.
+#
+# Isso não elimina o ruído diário (dado real também tem imprevisibilidade),
+# só deixa de ser a única fonte de variação de curto prazo.
+# ---------------------------------------------------------------------------
+
+ESTADOS_SURTO = ("normal", "elevado", "surto")
+MULTIPLICADOR_SURTO = {"normal": 1.0, "elevado": 1.35, "surto": 1.9}
+
+# Matriz de transição (linha = estado atual, coluna = próximo estado).
+# Calibrada para que episódios de "elevado"/"surto" durem tipicamente entre
+# 1 e 4 semanas (não 1 dia isolado) antes de voltar ao normal — ver
+# test_gerador_sintetico.py::test_estado_surto_tem_duracao_de_dias_nao_de_um_dia
+# para a verificação empírica da duração média.
+TRANSICAO_SURTO = np.array(
+    [
+        [0.97, 0.025, 0.005],  # normal -> normal / elevado / surto
+        [0.08, 0.85, 0.07],  # elevado -> normal / elevado / surto
+        [0.05, 0.15, 0.80],  # surto -> normal / elevado / surto
+    ]
+)
+
+
+def gerar_estado_surto(n_dias: int, rng: np.random.Generator) -> np.ndarray:
+    """Cadeia de Markov de 3 estados simulando surtos com duração de dias/semanas."""
+    estados = np.zeros(n_dias, dtype=int)
+    estado_atual = 0  # começa "normal"
+    for t in range(n_dias):
+        estados[t] = estado_atual
+        estado_atual = rng.choice(3, p=TRANSICAO_SURTO[estado_atual])
+    return estados
+
+
+def fator_surto(estados: np.ndarray) -> np.ndarray:
+    """Converte a sequência de estados (índices 0/1/2) no multiplicador correspondente."""
+    multiplicadores = np.array([MULTIPLICADOR_SURTO[estado] for estado in ESTADOS_SURTO])
+    return multiplicadores[estados]
+
+
+# ---------------------------------------------------------------------------
 # 2. Consumo diário (contrato 1.1)
 # ---------------------------------------------------------------------------
 
 
-def gerar_consumo_diario(externos: pd.DataFrame, medicamentos_ref: pd.DataFrame, rng: np.random.Generator) -> pd.DataFrame:
-    dias = externos["data"]
-    n_dias = len(dias)
+def _calcular_fatores_contexto(externos: pd.DataFrame) -> dict[str, np.ndarray]:
+    """Calcula os fatores externos e os surtos compartilhados pelo gerador.
 
-    dia_semana = dias.dt.dayofweek  # 0=segunda ... 6=domingo
-    # ER tem mais procura no fim de semana (clínicas fechadas) e leve alta na segunda (represamento)
+    Este contexto é usado tanto para gerar os atendimentos quanto para
+    definir a propensão por categoria de medicamento. Ele não depende do
+    consumo, mantendo a ordem causal do processo sintético.
+    """
+    n_dias = len(externos)
+    dias = externos["data"]
+
+    dia_semana = dias.dt.dayofweek
     fator_dia_semana = 1.0 + 0.10 * dia_semana.isin([5, 6]).astype(float) + 0.05 * (dia_semana == 0).astype(float)
     fator_feriado = 1.0 + 0.15 * externos["feriado"].astype(float)
+    fator_tendencia = 1.0 + 0.08 * np.linspace(0, 1, n_dias)
 
-    # Tendência leve de crescimento ao longo do período (mais atendimentos no fim do período)
-    progresso = np.linspace(0, 1, n_dias)
-    fator_tendencia = 1.0 + 0.08 * progresso
-
-    # Normaliza temperatura/chuva/dengue em torno da própria mediana do período,
-    # para os efeitos serem relativos (não dependerem de conhecer a escala exata).
     temp_norm = (externos["temperatura_media"].median() - externos["temperatura_media"]) / externos["temperatura_media"].std()
     chuva_norm = (externos["chuva_mm"] - externos["chuva_mm"].median()) / (externos["chuva_mm"].std() + 1e-6)
     dengue_norm = (externos["casos_dengue_regiao"] - externos["casos_dengue_regiao"].median()) / (
@@ -140,19 +255,63 @@ def gerar_consumo_diario(externos: pd.DataFrame, medicamentos_ref: pd.DataFrame,
     fator_clima = 1.0 + 0.12 * temp_norm.clip(-2, 2) + 0.05 * chuva_norm.clip(-2, 2)
     fator_dengue = 1.0 + 0.15 * dengue_norm.clip(-2, 3)
 
+    estado_surto_respiratorio = gerar_estado_surto(n_dias, np.random.default_rng(SEED + 9000))
+    estado_surto_dengue = gerar_estado_surto(n_dias, np.random.default_rng(SEED + 9001))
+
+    return {
+        "fator_dia_semana": fator_dia_semana.to_numpy(),
+        "fator_feriado": fator_feriado.to_numpy(),
+        "fator_tendencia": fator_tendencia,
+        "fator_clima": fator_clima.to_numpy(),
+        "fator_dengue": fator_dengue.to_numpy(),
+        "fator_surto_respiratorio": fator_surto(estado_surto_respiratorio),
+        "fator_surto_dengue": fator_surto(estado_surto_dengue),
+    }
+
+
+def gerar_consumo_diario(
+    externos: pd.DataFrame,
+    medicamentos_ref: pd.DataFrame,
+    rng: np.random.Generator,
+    sinais_internos: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    """Gera o consumo depois que os atendimentos do PS já foram observados.
+
+    ``sinais_internos`` é opcional apenas para manter compatibilidade com
+    chamadas antigas: quando omitido, ele é gerado primeiro a partir dos
+    dados externos, nunca a partir do consumo.
+    """
+    dias = externos["data"]
+    n_dias = len(dias)
+
+    if sinais_internos is None:
+        sinais_internos = gerar_sinais_internos(externos, rng)
+    sinais_por_data = sinais_internos.copy()
+    sinais_por_data["data"] = pd.to_datetime(sinais_por_data["data"])
+    sinais_por_data = sinais_por_data.set_index("data").reindex(pd.DatetimeIndex(dias))
+    if sinais_por_data["atendimentos_ps"].isna().any():
+        raise ValueError("sinais_internos não cobre todas as datas dos dados externos.")
+    fator_atendimentos = sinais_por_data["atendimentos_ps"].to_numpy() / ATENDIMENTOS_BASE_DIA
+    fatores = _calcular_fatores_contexto(externos)
+
     linhas = []
     for i, item in medicamentos_ref.iterrows():
         rng_item = np.random.default_rng(SEED + i)  # série reprodutível e independente por medicamento
 
-        fator = fator_dia_semana.to_numpy() * fator_feriado.to_numpy() * fator_tendencia
+        # O volume geral vem dos atendimentos gerados antes do consumo. Os
+        # fatores abaixo representam a composição específica de cada categoria.
+        fator = fator_atendimentos.copy()
         if item["_sensivel_clima"]:
-            fator = fator * fator_clima.to_numpy()
+            fator = fator * fatores["fator_clima"] * fatores["fator_surto_respiratorio"]
         if item["_sensivel_dengue"]:
-            fator = fator * fator_dengue.to_numpy()
+            fator = fator * fatores["fator_dengue"] * fatores["fator_surto_dengue"]
 
         media = item["_consumo_base_dia"] * fator
-        # Ruído multiplicativo (log-normal) + Poisson para manter valores inteiros plausíveis
-        ruido = rng_item.lognormal(mean=0.0, sigma=0.12, size=n_dias)
+        # Ruído multiplicativo com memória (Issue #61) + Poisson para manter
+        # valores inteiros plausíveis. O perfil de persistência (contínuo/
+        # intermitente/errático) controla quanta autocorrelação o ruído tem.
+        perfil = PERFIS_PERSISTENCIA[item["_perfil_persistencia"]]
+        ruido = gerar_ruido_ar1(n_dias, perfil["phi"], perfil["sigma_estacionario"], rng_item)
         consumo = rng_item.poisson(lam=np.clip(media * ruido, 1, None))
 
         linhas.append(
@@ -175,16 +334,26 @@ def gerar_consumo_diario(externos: pd.DataFrame, medicamentos_ref: pd.DataFrame,
 # ---------------------------------------------------------------------------
 
 
-def simular_estoque(consumo_diario: pd.DataFrame, medicamentos_ref: pd.DataFrame, rng: np.random.Generator) -> pd.DataFrame:
+def simular_estoque(
+    consumo_diario: pd.DataFrame,
+    medicamentos_ref: pd.DataFrame,
+    rng: np.random.Generator,
+) -> pd.DataFrame:
+    """Simula saldo e torna auditavel a censura causada por uma ruptura.
+
+    ``consumo_unidades`` e a demanda latente gerada antes da politica de
+    estoque: e o alvo que o modelo deve prever. A dispensacao, por outro lado,
+    nunca pode ultrapassar o saldo disponivel apos as entradas do dia.
+    """
     resultado = []
     for i, item in medicamentos_ref.iterrows():
         rng_item = np.random.default_rng(SEED + 1000 + i)
         serie = consumo_diario[consumo_diario["medicamento_id"] == item["medicamento_id"]].sort_values("data")
-        consumo = serie["consumo_unidades"].to_numpy()
-        n = len(consumo)
+        demanda = serie["consumo_unidades"].to_numpy()
+        n = len(demanda)
 
         prazo = int(item["prazo_entrega_dias"])
-        media_movel_consumo = pd.Series(consumo).rolling(14, min_periods=1).mean().to_numpy()
+        media_movel_consumo = pd.Series(demanda).rolling(14, min_periods=1).mean().to_numpy()
 
         # Ponto de pedido "ingênuo": reordena quando o estoque cobre menos que o
         # prazo de entrega + 3 dias de folga, sem estoque de segurança calculado
@@ -194,6 +363,8 @@ def simular_estoque(consumo_diario: pd.DataFrame, medicamentos_ref: pd.DataFrame
 
         estoque = np.zeros(n)
         entradas = np.zeros(n)
+        dispensacao = np.zeros(n)
+        demanda_nao_atendida = np.zeros(n)
         pedidos_em_transito = []  # lista de (dia_chegada, quantidade)
 
         estoque_atual = media_movel_consumo[0] * (prazo + 10) if n > 0 else 0.0
@@ -203,9 +374,9 @@ def simular_estoque(consumo_diario: pd.DataFrame, medicamentos_ref: pd.DataFrame
             entradas[t] = chegando_hoje
             estoque_atual += chegando_hoje
 
-            estoque_atual -= consumo[t]
-            # Estoque não pode ser negativo (ruptura = fica em 0, demanda não atendida é perdida)
-            estoque_atual = max(estoque_atual, 0.0)
+            dispensacao[t] = min(demanda[t], estoque_atual)
+            demanda_nao_atendida[t] = demanda[t] - dispensacao[t]
+            estoque_atual -= dispensacao[t]
             estoque[t] = estoque_atual
 
             if estoque_atual < ponto_pedido[t] and not any(True for _ in pedidos_em_transito):
@@ -220,7 +391,9 @@ def simular_estoque(consumo_diario: pd.DataFrame, medicamentos_ref: pd.DataFrame
                 {
                     "data": serie["data"].to_numpy(),
                     "medicamento_id": item["medicamento_id"],
-                    "consumo_unidades": consumo,
+                    "consumo_unidades": demanda,
+                    "dispensacao_unidades": dispensacao,
+                    "demanda_nao_atendida": demanda_nao_atendida,
                     "entradas_unidades": entradas,
                     "estoque_disponivel": estoque,
                 }
@@ -235,25 +408,28 @@ def simular_estoque(consumo_diario: pd.DataFrame, medicamentos_ref: pd.DataFrame
 # ---------------------------------------------------------------------------
 
 
-def gerar_sinais_internos(externos: pd.DataFrame, consumo_diario: pd.DataFrame, rng: np.random.Generator) -> pd.DataFrame:
-    consumo_total_dia = consumo_diario.groupby("data")["consumo_unidades"].sum().reset_index()
-    consumo_total_dia["data"] = pd.to_datetime(consumo_total_dia["data"])
-    consumo_total_dia = consumo_total_dia.sort_values("data")
-
-    # Atendimentos correlacionados com o consumo total agregado (mais atendimento -> mais consumo),
-    # escalado para uma faixa plausível de PS de porte médio, com ruído próprio.
-    base = 90 + 25 * (
-        (consumo_total_dia["consumo_unidades"] - consumo_total_dia["consumo_unidades"].mean())
-        / consumo_total_dia["consumo_unidades"].std()
+def gerar_sinais_internos(externos: pd.DataFrame, rng: np.random.Generator) -> pd.DataFrame:
+    """Gera atendimentos e ocupação a partir de sinais disponíveis antes do consumo."""
+    fatores = _calcular_fatores_contexto(externos)
+    fator_surto_atendimentos = (
+        0.65 * fatores["fator_surto_respiratorio"] + 0.35 * fatores["fator_surto_dengue"]
     )
-    ruido = rng.normal(0, 6, size=len(base))
-    atendimentos = np.clip(base + ruido, 30, None).round().astype(int)
+    fator_externo = (
+        fatores["fator_dia_semana"]
+        * fatores["fator_feriado"]
+        * fatores["fator_tendencia"]
+        * (1.0 + 0.08 * (fatores["fator_clima"] - 1.0))
+        * (1.0 + 0.08 * (fatores["fator_dengue"] - 1.0))
+    )
+    media_atendimentos = ATENDIMENTOS_BASE_DIA * fator_externo * fator_surto_atendimentos
+    ruido = rng.normal(0, 5, size=len(externos))
+    atendimentos = np.clip(media_atendimentos + ruido, 30, None).round().astype(int)
 
-    ocupacao = np.clip(45 + 0.35 * (atendimentos - atendimentos.mean()) + rng.normal(0, 4, size=len(base)), 20, 100)
+    ocupacao = np.clip(45 + 0.35 * (atendimentos - atendimentos.mean()) + rng.normal(0, 4, size=len(atendimentos)), 20, 100)
 
     return pd.DataFrame(
         {
-            "data": consumo_total_dia["data"].dt.date.astype(str),
+            "data": externos["data"].dt.date.astype(str),
             "atendimentos_ps": atendimentos,
             "ocupacao_leitos_pct": ocupacao.round(1),
         }
@@ -261,14 +437,49 @@ def gerar_sinais_internos(externos: pd.DataFrame, consumo_diario: pd.DataFrame, 
 
 
 # ---------------------------------------------------------------------------
-# 5. Lotes (contrato 1.4) — derivados do estoque final de cada medicamento,
-#    com 2 a 3 casos propositalmente "extremos" para dar exemplos reais de
-#    risco de vencimento e de ruptura no dashboard.
+# 5. Lotes (contrato 1.4) — derivados do estoque final de cada medicamento.
+#
+# Invariante (Issue #53, formalizada em CONTRATOS.md seção 1.4): a soma de
+# `quantidade_atual` dos lotes de um medicamento deve ser igual a
+# `estoque_disponivel` do último dia em `consumo_diario.csv`, a menos de
+# arredondamento (tolerância: no máximo 1 unidade, por causa da conversão de
+# `qtd_final` — que pode não ser inteiro — para quantidades inteiras por
+# lote). Antes desta correção, dois grupos de medicamentos tinham a
+# quantidade dos lotes **sobrescrita** para criar exemplos "dramáticos" de
+# risco de vencimento/falta, o que quebrava essa invariante (Issue #53,
+# reportada por hguimaa) — a versão atual nunca inventa quantidade: os casos
+# de risco de vencimento continuam existindo, mas concentrando uma fração do
+# estoque real num lote de validade curta, em vez de inflar o total.
 # ---------------------------------------------------------------------------
 
-# medicamento_id escolhidos deliberadamente para ilustrar os dois riscos do projeto
-MEDICAMENTOS_RISCO_VENCIMENTO = {"ceftriaxona_inj", "hidrocortisona_inj"}  # lote grande, validade próxima
-MEDICAMENTOS_RISCO_FALTA = {"adrenalina_inj", "salbutamol"}  # estoque baixo relativo ao consumo
+# medicamento_id escolhido deliberadamente para ilustrar risco de vencimento
+# com dado consistente: concentra a maior parte do estoque REAL desse
+# medicamento num lote com validade curta (poucos dias), o suficiente para
+# não dar tempo de ser consumido no ritmo normal — sem inventar quantidade.
+MEDICAMENTOS_RISCO_VENCIMENTO = {"ceftriaxona_inj", "hidrocortisona_inj"}
+
+
+def _distribuir_quantidade_inteira(total: float, pesos: np.ndarray) -> np.ndarray:
+    """Distribui `round(total)` unidades entre `pesos`, com soma exatamente igual ao total (método do maior resto).
+
+    Evita o problema de arredondar cada fatia isoladamente (que pode fazer a
+    soma final divergir do total em várias unidades, dependendo do número de
+    lotes) — aqui o desvio máximo possível é 1 unidade, só por causa do
+    arredondamento do próprio `total` (que normalmente já é ~inteiro).
+    """
+    total_inteiro = int(round(total))
+    se_total_zero = total_inteiro <= 0
+    if se_total_zero:
+        return np.zeros(len(pesos))
+
+    brutos = total_inteiro * pesos
+    base = np.floor(brutos).astype(int)
+    resto = total_inteiro - base.sum()
+    if resto > 0:
+        ordem_maior_resto = np.argsort(-(brutos - base))
+        for idx in ordem_maior_resto[:resto]:
+            base[idx] += 1
+    return base.astype(float)
 
 
 def gerar_lotes(estoque_final: pd.DataFrame, medicamentos_ref: pd.DataFrame, rng: np.random.Generator) -> pd.DataFrame:
@@ -280,20 +491,33 @@ def gerar_lotes(estoque_final: pd.DataFrame, medicamentos_ref: pd.DataFrame, rng
         med_id = item["medicamento_id"]
         qtd_final = float(estoque_final.loc[estoque_final["medicamento_id"] == med_id, "estoque_disponivel"].iloc[-1])
 
-        if med_id in MEDICAMENTOS_RISCO_FALTA:
-            qtd_final = min(qtd_final, item["_consumo_base_dia"] * 1.5)  # força estoque baixo
+        n_lotes = int(rng_item.integers(2, 4))
 
-        n_lotes = rng_item.integers(2, 4)
-        pesos = rng_item.dirichlet(np.ones(n_lotes))
-        quantidades = np.maximum((qtd_final * pesos).round(), 0)
+        if med_id in MEDICAMENTOS_RISCO_VENCIMENTO and n_lotes > 1:
+            # concentra a maior parte do estoque real num único lote (validade curta),
+            # em vez de espalhar uniformemente — sem alterar o total.
+            fracao_concentrada = rng_item.uniform(0.8, 0.95)
+            pesos = np.full(n_lotes, (1 - fracao_concentrada) / (n_lotes - 1))
+            pesos[0] = fracao_concentrada
+        else:
+            pesos = rng_item.dirichlet(np.ones(n_lotes))
+
+        quantidades = _distribuir_quantidade_inteira(qtd_final, pesos)
 
         for lote_idx in range(n_lotes):
             dias_desde_entrada = int(rng_item.integers(5, 120))
             data_entrada = fim - pd.Timedelta(days=dias_desde_entrada)
 
             if med_id in MEDICAMENTOS_RISCO_VENCIMENTO and lote_idx == 0:
-                dias_ate_validade = int(rng_item.integers(10, 25))  # vence em breve, e é o lote com mais quantidade
-                quantidades[0] = max(quantidades[0], item["_consumo_base_dia"] * 20)
+                # validade curta o bastante para não dar tempo de consumir no ritmo
+                # normal: calculada a partir do próprio consumo-base do medicamento
+                # (não um número redondo qualquer), com folga de 30% para continuar
+                # valendo mesmo com a demanda mais alta do fim do período (tendência
+                # de crescimento). Clipada entre 2 e 10 dias para continuar plausível.
+                quantidade_lote = quantidades[0]
+                consumo_base_dia = max(item["_consumo_base_dia"], 1.0)
+                dias_para_estourar_o_risco = quantidade_lote / (consumo_base_dia * 1.3)
+                dias_ate_validade = int(np.clip(dias_para_estourar_o_risco, 2, 10))
             else:
                 dias_ate_validade = int(rng_item.integers(180, 720))
 
@@ -364,19 +588,56 @@ def validar_consumo_diario(df: pd.DataFrame, medicamentos_ref: pd.DataFrame) -> 
 
     if (df["consumo_unidades"] < 0).any():
         raise ValueError("consumo_unidades negativo encontrado.")
+    if (df["dispensacao_unidades"] < 0).any():
+        raise ValueError("dispensacao_unidades negativa encontrada.")
+    if (df["demanda_nao_atendida"] < 0).any():
+        raise ValueError("demanda_nao_atendida negativa encontrada.")
+    if not np.allclose(
+        df["consumo_unidades"],
+        df["dispensacao_unidades"] + df["demanda_nao_atendida"],
+    ):
+        raise ValueError(
+            "consumo_unidades deve ser igual a dispensacao_unidades mais demanda_nao_atendida."
+        )
+    if (df["dispensacao_unidades"] > df["consumo_unidades"]).any():
+        raise ValueError("dispensacao_unidades nao pode superar a demanda latente.")
     if (df["estoque_disponivel"] < 0).any():
         raise ValueError("estoque_disponivel negativo encontrado.")
-    if df[["consumo_unidades", "entradas_unidades", "estoque_disponivel"]].isna().any().any():
+    colunas_numericas = [
+        "consumo_unidades",
+        "dispensacao_unidades",
+        "demanda_nao_atendida",
+        "entradas_unidades",
+        "estoque_disponivel",
+    ]
+    if df[colunas_numericas].isna().any().any():
         raise ValueError("Valores nulos encontrados em consumo_diario.")
 
 
-def validar_lotes(df: pd.DataFrame, medicamentos_ref: pd.DataFrame) -> None:
+TOLERANCIA_INVENTARIO_UNIDADES = 1.0  # ver CONTRATOS.md secao 1.4
+
+
+def validar_lotes(df: pd.DataFrame, medicamentos_ref: pd.DataFrame, consumo_diario: pd.DataFrame) -> None:
     if not set(df["medicamento_id"]).issubset(set(medicamentos_ref["medicamento_id"])):
         raise ValueError("lotes.csv tem medicamento_id fora da lista de referência.")
     if (df["quantidade_atual"] < 0).any():
         raise ValueError("quantidade_atual negativa em lotes.csv.")
     if (pd.to_datetime(df["data_validade"]) <= pd.to_datetime(df["data_entrada"])).any():
         raise ValueError("Há lote com data_validade anterior/igual à data_entrada.")
+
+    # Invariante de inventário (Issue #53): soma dos lotes == estoque_disponivel
+    # do último dia, por medicamento, a menos da tolerância de arredondamento.
+    soma_lotes = df.groupby("medicamento_id")["quantidade_atual"].sum()
+    ultimo_estoque = (
+        consumo_diario.sort_values("data").groupby("medicamento_id")["estoque_disponivel"].last()
+    )
+    divergencia = (soma_lotes - ultimo_estoque).abs().dropna()
+    inconsistentes = divergencia[divergencia > TOLERANCIA_INVENTARIO_UNIDADES]
+    if not inconsistentes.empty:
+        raise ValueError(
+            "Soma dos lotes diverge de estoque_disponivel além da tolerância "
+            f"({TOLERANCIA_INVENTARIO_UNIDADES} unidade) para: {inconsistentes.to_dict()}"
+        )
 
 
 def validar_pedidos(df: pd.DataFrame, medicamentos_ref: pd.DataFrame) -> None:
@@ -397,25 +658,37 @@ def main() -> None:
     medicamentos_ref = montar_medicamentos_ref()
     externos = carregar_externos()
 
-    consumo_bruto = gerar_consumo_diario(externos, medicamentos_ref, rng)
+    sinais_internos = gerar_sinais_internos(externos, rng)
+    consumo_bruto = gerar_consumo_diario(externos, medicamentos_ref, rng, sinais_internos)
     consumo_com_estoque = simular_estoque(consumo_bruto, medicamentos_ref, rng)
-    sinais_internos = gerar_sinais_internos(externos, consumo_bruto, rng)
 
     consumo_diario = consumo_com_estoque.merge(sinais_internos, on="data", how="left")
     consumo_diario = consumo_diario[
-        ["data", "medicamento_id", "consumo_unidades", "estoque_disponivel", "entradas_unidades", "ocupacao_leitos_pct", "atendimentos_ps"]
+        [
+            "data",
+            "medicamento_id",
+            "consumo_unidades",
+            "dispensacao_unidades",
+            "demanda_nao_atendida",
+            "estoque_disponivel",
+            "entradas_unidades",
+            "ocupacao_leitos_pct",
+            "atendimentos_ps",
+        ]
     ]
 
     lotes = gerar_lotes(consumo_com_estoque, medicamentos_ref, rng)
     pedidos = gerar_pedidos_pendentes(medicamentos_ref, rng)
 
     validar_consumo_diario(consumo_diario, medicamentos_ref)
-    validar_lotes(lotes, medicamentos_ref)
+    validar_lotes(lotes, medicamentos_ref, consumo_diario)
     validar_pedidos(pedidos, medicamentos_ref)
 
     DIR_PROCESSED.mkdir(parents=True, exist_ok=True)
     consumo_diario.to_csv(SAIDA_CONSUMO, index=False, encoding="utf-8")
-    medicamentos_ref.drop(columns=["_consumo_base_dia", "_sensivel_clima", "_sensivel_dengue"]).to_csv(
+    medicamentos_ref.drop(
+        columns=["_consumo_base_dia", "_sensivel_clima", "_sensivel_dengue", "_perfil_persistencia"]
+    ).to_csv(
         SAIDA_MEDICAMENTOS_REF, index=False, encoding="utf-8"
     )
     lotes.to_csv(SAIDA_LOTES, index=False, encoding="utf-8")
@@ -428,6 +701,10 @@ def main() -> None:
 
     total_rupturas = int((consumo_diario["estoque_disponivel"] == 0).sum())
     print(f"Dias-medicamento com estoque zerado (ruptura) no período: {total_rupturas}")
+    print(
+        "Unidades de demanda nao atendida no periodo: "
+        f"{consumo_diario['demanda_nao_atendida'].sum():.0f}"
+    )
 
 
 if __name__ == "__main__":

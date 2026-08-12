@@ -32,7 +32,17 @@ SAIDA_EXTERNOS = DIR_EXTERNAL / "externos_diarios.csv"
 SAIDA_CONSOLIDADO = DIR_PROCESSED / "consumo_medicamentos.csv"
 SAIDA_AMOSTRA = DIR_PROCESSED / "sample_consumo_medicamentos.csv"
 
-COLUNAS_CONTRATO_1_1 = ["data", "medicamento_id", "consumo_unidades", "estoque_disponivel", "entradas_unidades", "ocupacao_leitos_pct", "atendimentos_ps"]
+COLUNAS_CONTRATO_1_1 = [
+    "data",
+    "medicamento_id",
+    "consumo_unidades",
+    "dispensacao_unidades",
+    "demanda_nao_atendida",
+    "estoque_disponivel",
+    "entradas_unidades",
+    "ocupacao_leitos_pct",
+    "atendimentos_ps",
+]
 COLUNAS_CONTRATO_1_2 = ["data", "temperatura_media", "chuva_mm", "casos_dengue_regiao", "feriado"]
 
 

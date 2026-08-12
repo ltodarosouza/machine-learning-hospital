@@ -37,8 +37,25 @@ confiança formais.
 python src/models/modelo_demanda.py
 ```
 
-O comando executa uma validação temporal e salva o artefato reproduzível em
-`models_output/modelo_demanda.joblib`.
+O comando executa uma validação temporal e salva o artefato **de verdade
+reproduzível** em `models_output/modelo_demanda.joblib` — reproduzível aqui
+quer dizer especificamente que ele carrega em qualquer outro processo
+Python, não só no que o treinou (ver `artefato.py` abaixo e o teste
+`tests/test_artefato_modelo.py`, que executa esse comando via subprocesso e
+carrega o resultado no processo do pytest).
+
+### `artefato.py` (Issue #52) — pronto
+
+Isola a dataclass `ModeloDemanda` e as funções `salvar_modelo`/`carregar_modelo`
+num módulo que **nunca** é executado como script. Motivo: `python src/models/modelo_demanda.py`
+faz o Python tratar aquele arquivo como o módulo `__main__` — se uma classe
+serializável fosse definida ali (como estava antes desta correção), o
+pickle grava `__module__ == "__main__"`, e qualquer processo novo que
+importe `src.models.modelo_demanda` normalmente falha ao carregar com
+`AttributeError: module '__main__' has no attribute 'ModeloDemanda'`. Foi
+exatamente esse bug que aconteceu neste projeto. `salvar_modelo`/`carregar_modelo`
+continuam acessíveis via `src.models.modelo_demanda` (reexportados) — nenhum
+código que já os importava dali precisa mudar.
 
 ### Histórico de melhorias (não é a versão original desta Issue)
 
@@ -100,11 +117,11 @@ valores de consumo **das mesmas datas de calendário mudam** entre a versão de
 entre si, só os valores absolutos de MAE **dentro** da mesma versão de dataset
 + features.
 
-**Resultado final** (dataset de 4 anos, features com normalização causal,
-XGBoost retunado), documentado em
-[`docs/arquitetura/RESULTADOS_MODELAGEM.md`](../../docs/arquitetura/RESULTADOS_MODELAGEM.md):
-MAE agregado de **9.43** unidades/dia, **1.8%** menor que o baseline (9.60),
-vencendo em 11 dos 20 medicamentos. É uma vantagem modesta — reportado sem
+**Resultado da avaliação atual** (dataset de 4 anos com os estados latentes de
+surto da Issue #58, features com normalização causal, XGBoost retunado),
+documentado em [`docs/arquitetura/RESULTADOS_MODELAGEM.md`](../../docs/arquitetura/RESULTADOS_MODELAGEM.md):
+MAE agregado de **10.42** unidades/dia, **1.9%** menor que o baseline (10.62),
+vencendo em 10 dos 20 medicamentos. É uma vantagem modesta — reportado sem
 maquiagem, como todo o resto desta avaliação.
 
 **Por que o ganho é modesto — e o que fazer a respeito:** análise técnica do
@@ -115,11 +132,25 @@ teoricamente ótimo já é a própria média-base, que uma média móvel simples
 consegue aproximar quase tão bem quanto um modelo de ML. Mais tuning não
 resolve isso; é uma limitação estrutural do dado, não do modelo. Quatro
 issues abrem o caminho para corrigir isso, mexendo no gerador (não no
-modelo): **#58** (estados latentes de surto com duração), **#59** (corrige
-causalidade invertida de `atendimentos_ps`), **#60** (separa demanda
-latente de dispensação observada em rupturas) e **#61** (classes de
-persistência por medicamento, ruído autocorrelacionado). Depois delas, vale
-reabrir esta comparação de algoritmos/tuning para medir o efeito combinado.
+modelo): **#58** (estados latentes de surto com duração — ✅ feita,
+`gerar_estado_surto`/`fator_surto` em `gerar_dataset_sintetico.py`, episódios
+de ~14 dias em média em vez de ruído por dia), **#59** (corrige causalidade
+invertida de `atendimentos_ps`), **#60** (separa demanda latente de
+dispensação observada em rupturas) e **#61** (classes de persistência por
+medicamento, ruído autocorrelacionado — ✅ feita, `gerar_ruido_ar1` em
+`gerar_dataset_sintetico.py`, cada medicamento com um perfil contínuo/
+intermitente/errático em vez do mesmo ruído i.i.d. para todos).
+
+**Atenção:** as Issues #58 e #61 já foram feitas, e cada uma regenerou o
+dataset de novo (mesma seed, lógica de geração diferente). A comparação de
+baseline contra XGBoost em `docs/arquitetura/RESULTADOS_MODELAGEM.md` foi
+reexecutada depois da #58, mas **ainda não depois da #61** — os números lá
+podem estar levemente desatualizados agora. As tabelas de comparação de
+algoritmos e tuning mais acima nesta seção refletem uma versão ainda mais
+antiga do dataset (antes de #58 e #61). Ficam pendentes as issues #59 e #60;
+depois delas (ou já agora, se alguém quiser adiantar), vale reabrir
+`scripts/comparar_algoritmos_modelo.py` + `src/evaluation/comparar_modelos.py`
+para medir o efeito combinado com números atualizados.
 
 **Tamanho do dataset, para contexto:** 1.461 dias (4 anos) × 20 medicamentos =
 29.220 linhas brutas; depois do "aquecimento" das médias móveis de 30 dias,

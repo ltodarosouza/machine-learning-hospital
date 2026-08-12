@@ -31,9 +31,34 @@ Saída (todas em `data/processed/`, commitadas — ver `.gitignore`, dado sinté
 - `lotes.csv` — contrato 1.4 (lotes em estoque, com validade)
 - `pedidos_pendentes.csv` — contrato 1.5 (pedidos em trânsito no fim do período)
 
+**Demanda e ruptura (Issue #60):** `consumo_unidades` representa a demanda
+latente, inclusive quando o estoque não era suficiente para atendê-la. A
+simulação registra separadamente `dispensacao_unidades` (o que saiu de fato) e
+`demanda_nao_atendida` (a diferença por ruptura). O modelo continua prevendo a
+demanda latente; as duas novas colunas são operacionais e não entram como
+features preditivas.
+
 **Importante — números de base são premissas do time, não dados reais:** consumo médio diário por medicamento, preços e prazos de entrega em `MEDICAMENTOS_REF` (dentro do script) são estimativas de ordem de grandeza para o MVP fazer sentido, não vieram de nenhum hospital real. Isso é consistente com o framing já adotado no projeto (ver `docs/negocio/CONTEXTO.md`, seção de cuidado com números de impacto) — se questionado na banca, a resposta é "dataset sintético calibrado com padrões plausíveis, não dado real".
 
-**Casos propositalmente extremos para a demonstração:** `ceftriaxona_inj` e `hidrocortisona_inj` têm um lote grande com validade próxima (risco de vencimento); `adrenalina_inj` tem estoque cronicamente baixo frente ao consumo (risco de falta, é o item com mais dias de ruptura no período). Isso dá exemplos concretos e visuais para o dashboard, em vez de precisar torcer para o acaso gerar um caso interessante.
+**Estados latentes persistentes de surto (Issue #58):** até aqui, a única variação de curto prazo era ruído independente a cada dia — o que faz o previsor "ótimo" ser praticamente a própria média-base, limitando estruturalmente o quanto um modelo de ML consegue melhorar sobre uma média móvel simples (ver discussão que originou a Issue #58, e o resultado modesto documentado em `src/models/README.md`). Agora existem 2 processos de "intensidade de surto" (uma cadeia de Markov de 3 estados: normal/elevado/surto — `gerar_estado_surto`), um compartilhado por todos os medicamentos sensíveis a clima (respiratórios) e outro por todos sensíveis a dengue — porque um surto de verdade afeta vários medicamentos ao mesmo tempo, não um só. Episódios fora do "normal" duram, em média, ~14 dias (mediana 10), dentro da faixa de 1-4 semanas — não é mais um sorteio novo por dia. Isso não elimina o ruído diário, só deixa de ser a única fonte de variação de curto prazo.
+
+**Ordem causal dos sinais internos (Issue #59):** o gerador primeiro calcula os fatores externos e os estados de surto, depois gera `atendimentos_ps` a partir deles e deriva `ocupacao_leitos_pct` dos atendimentos. Só então `gerar_consumo_diario` gera o consumo por medicamento usando o volume de atendimentos como sinal de demanda, combinado com a propensão específica de clima/dengue da categoria. `atendimentos_ps` não é mais calculado a partir do consumo agregado do próprio dia.
+
+**Fora do escopo desta issue** (fica para depois, se o time decidir): re-rodar a comparação de algoritmos/tuning do modelo (`scripts/comparar_algoritmos_modelo.py`, `scripts/tuning_xgboost.py`) com o dataset regenerado, para medir se isso de fato aumenta a margem do ML sobre o baseline.
+
+**Classes de persistência por medicamento (Issue #61):** o ruído de curto prazo era o mesmo mecanismo (log-normal independente a cada dia) para os 20 medicamentos igualmente, mesmo eles tendo dinâmicas bem diferentes na prática. Agora cada medicamento tem um "perfil de persistência" (`_perfil_persistencia`, derivado da `categoria` em `montar_medicamentos_ref`, não salvo no CSV final — é um detalhe de geração, não um dado do domínio):
+
+| Perfil | Categorias | `phi` (memória) | Exemplo |
+|---|---|---|---|
+| `continuo` | Dor/febre, Suporte/hidratação | 0.85 (alta) | `paracetamol`, `soro_fisiologico` |
+| `intermitente` | todas as demais (padrão) | 0.55 (média) | `salbutamol`, `amoxicilina` |
+| `erratico` | Emergência/controlado | 0.05 (quase nenhuma) | `adrenalina_inj`, `diazepam` |
+
+`gerar_ruido_ar1` substitui o sorteio log-normal i.i.d. por um processo AR(1) em escala log (`ruído_t = φ·ruído_(t-1) + inovação_t`, depois exponenciado): `φ` controla a memória, e a variância da inovação é calibrada por perfil (`sigma_estacionario`) para manter a mesma amplitude de variação de antes (0.12) em regime permanente — a mudança é só de memória, não de volatilidade total. Verificado empiricamente (e coberto por teste) que a autocorrelação de lag 1 do ruído gerado bate com `φ` dentro de ~0.01, e que `continuo > intermitente > erratico`, como esperado.
+
+Perfil "erratico" (`φ=0.05`) é, de propósito, quase equivalente ao comportamento i.i.d. anterior — itens de emergência/baixíssimo volume não deveriam ganhar uma estrutura temporal artificial que não faz sentido para eles.
+
+**Casos propositalmente extremos para a demonstração:** `ceftriaxona_inj` e `hidrocortisona_inj` concentram a maior parte do seu estoque **real** (não inventado) num único lote de validade curta (`gerar_lotes`, calculada a partir do próprio consumo-base do medicamento, não um número fixo) — o suficiente para o motor de recomendação classificar risco de vencimento alto de verdade, sem quebrar a invariante `soma(lotes) == estoque_disponivel` (contrato seção 1.4, Issue #53). `adrenalina_inj` tem estoque cronicamente baixo frente ao consumo (risco de falta, é o item com mais dias de ruptura no período) — esse já surge naturalmente da simulação, sem precisar forçar nada.
 
 ### `ingestao_clima.py` (Issue #4) — pronto
 
