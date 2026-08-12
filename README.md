@@ -40,10 +40,11 @@ machine-learning-hospital/
 
 ## Como contribuir
 
-Antes de codar, leia:
-1. [CONTRIBUTING.md](CONTRIBUTING.md) — fluxo de git, branches, commits, PRs.
-2. [docs/TASKS.md](docs/TASKS.md) — divisão de tarefas entre os 5 integrantes, com escopo, dependências e critérios de pronto.
-3. [docs/arquitetura/CONTRATOS.md](docs/arquitetura/CONTRATOS.md) — contratos de interface entre os módulos (schema de dados, entrada/saída do modelo, fórmula de recomendação). **Isso deve ser definido em conjunto antes de codar em paralelo.**
+O trabalho é dividido em **tasks (Issues do GitHub)**, não por pessoa fixa — cada pessoa escolhe uma task disponível, entre as que já têm os pré-requisitos prontos. Ver a [aba Issues](../../issues) para a lista completa, com escopo, pré-requisitos e critério de pronto de cada uma.
+
+Antes de pegar sua primeira task, leia:
+1. [CONTRIBUTING.md](CONTRIBUTING.md) — fluxo de git, branches, commits, PRs, e como escolher/travar uma task.
+2. [docs/arquitetura/CONTRATOS.md](docs/arquitetura/CONTRATOS.md) — contratos de interface entre os módulos (schema de dados, entrada/saída do modelo, fórmula de recomendação). **Definido em conjunto na Issue #1, antes de qualquer outra task começar.**
 
 ## Stack
 

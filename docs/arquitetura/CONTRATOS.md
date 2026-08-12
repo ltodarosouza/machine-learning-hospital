@@ -4,13 +4,13 @@
 
 Cadeia de dependência: `data_ingestion → features → models → recommendation → dashboard`. `evaluation` consome `models` e `recommendation`.
 
-Cada dono de módulo trabalha com um **mock/exemplo pequeno** do contrato de entrada enquanto o módulo anterior não está pronto (ex.: Pessoa C cria um CSV de exemplo com o formato combinado abaixo e desenvolve o modelo contra ele, sem esperar a Pessoa B terminar).
+Quem pegar uma task trabalha com um **mock/exemplo pequeno** do contrato de entrada enquanto a task anterior da cadeia não está pronta (ex.: quem pegar a Issue do modelo cria um CSV de exemplo com o formato combinado abaixo e desenvolve contra ele, sem esperar a Issue de features terminar). Ver a lista completa de tasks na [aba Issues](../../issues).
 
 ---
 
 ## 1. Schema de dados processados (saída de `data_ingestion`, entrada de `features`)
 
-Dono: Pessoa A. A preencher (exemplo de estrutura mínima esperada):
+Definido na Issue #1 (kickoff). A preencher (exemplo de estrutura mínima esperada):
 
 | Coluna | Tipo | Descrição |
 |---|---|---|
@@ -72,7 +72,7 @@ Horizonte de previsão do MVP: **7–14 dias**.
 ## 6. Contrato de `evaluation`
 
 - Consome saída de `models` (comparar `demanda_prevista` vs. `consumo_unidades` real) e saída de `recommendation` (simular economia/redução de ruptura vs. baseline).
-- Definir aqui o baseline de comparação (ex.: média móvel simples ou ponto de pedido fixo) — combinar com Pessoa C e D.
+- Definir aqui o baseline de comparação (ex.: média móvel simples ou ponto de pedido fixo) — ver Issues de baseline (#11) e avaliação (#13).
 
 ---
 

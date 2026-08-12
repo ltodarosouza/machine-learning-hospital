@@ -2,57 +2,58 @@
 
 Somos 5 pessoas trabalhando no mesmo repositório, em máquinas diferentes. Este documento existe para que ninguém sobrescreva o trabalho de outra pessoa e para que o `main` fique sempre em estado demonstrável.
 
+## Como o trabalho é organizado: tasks, não pessoas fixas
+
+O projeto está dividido em ~25 tasks na [aba Issues](../../issues), cada uma com escopo, pastas envolvidas, pré-requisitos e critério de pronto bem explícitos. **Não existe "a pessoa dos dados" ou "a pessoa do dashboard" fixa** — qualquer um pode pegar qualquer task, desde que os pré-requisitos dela já estejam prontos (cada Issue lista isso na seção "Pré-requisitos", com link para as Issues das quais depende).
+
+Isso é o que substitui a divisão por área que tínhamos antes: mais granular, mais flexível, e deixa claro o que trava o quê.
+
+### Como escolher uma task
+
+1. Olhe a [aba Issues](../../issues) e veja quais estão **sem ninguém atribuído** e **com os pré-requisitos já fechados** (a Issue de pré-requisito precisa estar com PR mergeado no `main`).
+2. Atribua a Issue a você mesmo (`Assignees`) e comente avisando que vai começar — evita duas pessoas pegando a mesma task sem saber.
+3. Crie sua branch a partir do `main`, nomeada `feature/<número-da-issue>-<slug-curto>` (ex.: `feature/12-modelo-previsao-demanda` — o próprio corpo de cada Issue já sugere o nome).
+4. As duas primeiras Issues (**#1** e **#2**) são de kickoff e devem ser feitas **pelo time todo junto**, antes de qualquer task individual começar — elas travam o schema de dados que todo o resto depende.
+
 ## Estratégia de branches
 
 ```
-main                    → sempre estável, sempre roda, é o que se mostra na banca
- └─ feature/<escopo>     → uma branch por pessoa/tarefa, nunca commit direto no main
+main                          → sempre estável, sempre roda, é o que se mostra na banca
+ └─ feature/<issue>-<slug>     → uma branch por task/Issue, nunca commit direto no main
 ```
 
-Não usamos uma branch `develop` intermediária: com 5 pessoas e módulos bem separados por pasta, `main` + `feature/*` + Pull Request é suficiente e mais simples. Se a integração ficar arriscada perto da entrega, podemos criar `integration` temporariamente — decidir em conjunto se for o caso.
-
-### Branches por pessoa (fixas, ver [docs/TASKS.md](docs/TASKS.md) para o escopo de cada uma)
-
-| Branch | Dono(a) | Pasta principal |
-|---|---|---|
-| `feature/data-ingestion` | Pessoa A | `src/data_ingestion/`, `data/` |
-| `feature/feature-engineering` | Pessoa B | `src/features/` |
-| `feature/modelagem-demanda` | Pessoa C | `src/models/` |
-| `feature/recomendacao-avaliacao` | Pessoa D | `src/recommendation/`, `src/evaluation/` |
-| `feature/dashboard-pitch` | Pessoa E | `dashboard/`, `docs/pitch/` |
-
-Se uma tarefa gerar sub-branches (ex.: um experimento específico), nomeie como `feature/modelagem-demanda-prophet` etc., sempre partindo da branch da pessoa ou do `main`.
+Não usamos uma branch `develop` intermediária: `main` + `feature/<issue>` + Pull Request é suficiente. Se a integração ficar arriscada perto da entrega, podemos criar `integration` temporariamente — decidir em conjunto se for o caso.
 
 ## Regra de ouro para evitar conflitos
 
-**Cada pessoa só edita os arquivos dentro da pasta que é dona.** Isso é o que torna possível trabalhar em paralelo sem conflitos de merge. Se você precisa mudar algo fora da sua pasta:
+**Cada task tem pastas específicas listadas na própria Issue — só mexa nelas.** Como as tasks já foram desenhadas para não se sobreporem em arquivos, trabalhar em branches separadas ao mesmo tempo não deve gerar conflito, desde que cada um fique dentro do escopo da sua Issue. Se você precisa mudar algo fora da sua task:
 
-1. Abra uma Issue ou avise no grupo antes.
-2. Ou faça a mudança em uma branch separada e peça revisão específica do dono da pasta.
+1. Comente na Issue relevante ou avise no grupo antes.
+2. Ou faça a mudança em uma branch separada e peça revisão específica de quem estiver com aquela task.
 
-Arquivos compartilhados de leitura (não editar sem avisar o grupo):
-- `docs/arquitetura/CONTRATOS.md` — mudanças aqui afetam todo mundo, sempre discutir antes.
+Arquivos compartilhados (não editar sem avisar o grupo):
+- `docs/arquitetura/CONTRATOS.md` — mudanças aqui afetam todo mundo, sempre discutir antes. Toda mudança feita depois do kickoff deve ser registrada na tabela de histórico no fim do arquivo.
 - `README.md`, `.gitignore`, `requirements.txt` — mudanças pequenas ok, mas avise no grupo.
 
-**Notebooks (`notebooks/exploracao/`):** cada pessoa cria seus próprios arquivos com prefixo do nome, ex. `pessoa_a_exploracao_clima.ipynb`. Nunca duas pessoas editando o mesmo notebook — notebooks geram conflitos de merge praticamente impossíveis de resolver (o `.ipynb` é JSON com metadata e outputs binários).
+**Notebooks (`notebooks/exploracao/`):** cada pessoa cria seus próprios arquivos com prefixo do nome, ex. `joao_exploracao_modelo.ipynb`. Nunca duas pessoas editando o mesmo notebook — notebooks geram conflitos de merge praticamente impossíveis de resolver (o `.ipynb` é JSON com metadata e outputs binários).
 
 ## Fluxo de trabalho
 
-1. Atualize sua branch com o `main` antes de começar a trabalhar no dia:
+1. Escolha uma Issue sem atribuição e com pré-requisitos prontos, atribua a si mesmo e comente.
+2. Crie a branch a partir do `main` atualizado:
    ```bash
    git checkout main
    git pull origin main
-   git checkout feature/<sua-branch>
-   git merge main
+   git checkout -b feature/<numero-da-issue>-<slug>
    ```
-2. Trabalhe em commits pequenos e frequentes (não acumule uma semana de trabalho num commit só).
-3. Dê push regularmente para a sua branch (pelo menos ao final de cada sessão de trabalho):
+3. Trabalhe em commits pequenos e frequentes (não acumule dias de trabalho num commit só).
+4. Dê push regularmente (pelo menos ao final de cada sessão de trabalho):
    ```bash
-   git push origin feature/<sua-branch>
+   git push -u origin feature/<numero-da-issue>-<slug>
    ```
-4. Quando uma parte da sua tarefa estiver pronta e testada, abra um **Pull Request** para `main`.
-5. Pelo menos **1 outra pessoa da equipe revisa** antes do merge (não precisa ser especialista na área, é para pegar problemas óbvios e manter todo mundo ciente do que está mudando no projeto).
-6. Depois do merge, delete a branch remota da tarefa concluída (mantenha a branch "guarda-chuva" da pessoa se ela for continuar trabalhando nela, ou crie uma nova branch para a próxima etapa).
+5. Quando a task estiver pronta (critério de pronto da Issue cumprido), abra um **Pull Request** para `main` referenciando a Issue (`Closes #<numero>` na descrição do PR fecha a Issue automaticamente ao mergear).
+6. Pelo menos **1 outra pessoa da equipe revisa** antes do merge (não precisa ser especialista na área — é para pegar problemas óbvios e manter todo mundo ciente do que está mudando).
+7. Depois do merge, delete a branch. Isso pode destravar outras Issues que tinham esta como pré-requisito — avise no grupo/comente nas Issues dependentes que já podem começar.
 
 ## Convenção de commits
 
