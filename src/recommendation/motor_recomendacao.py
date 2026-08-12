@@ -1,18 +1,36 @@
-"""Motor base de recomendação de compra de medicamentos.
+"""Motor de recomendacao de compras da Issue #15.
 
-A demanda prevista para cada dia do horizonte é somada por medicamento antes
-da aplicação da fórmula definida em ``CONTRATOS.md``. O resultado nunca é
-negativo: quando estoque e pedidos já cobrem demanda e segurança, a compra é
-zero.
+A previsao recebida tem uma linha por dia do horizonte. Este modulo soma o
+horizonte por medicamento antes de calcular uma unica recomendacao::
+
+    compra_recomendada = (
+        demanda_prevista + estoque_seguranca
+        - estoque_disponivel - pedidos_confirmados
+    )
+
+A data de referencia e o dia anterior ao inicio da previsao. Somente o estoque
+mais recente ate essa data pode ser usado. Pedidos sem datas sao aceitos por
+compatibilidade com a API original e integralmente descontados. Quando existe
+``data_prevista_entrega``, somente entregas dentro do horizonte sao
+descontadas; entregas vencidas ou posteriores sao ignoradas.
+
+Valores numericos ausentes, nao finitos, booleanos ou negativos sao rejeitados.
+As previsoes definem os medicamentos da saida. Seguranca e estoque sao
+obrigatorios para todos eles; pedidos ausentes equivalem a zero.
+
+Os riscos sao heuristicas temporarias. O risco de vencimento permanece
+``baixo`` apenas para compatibilidade com o enum do contrato, mas nao constitui
+avaliacao real sem lotes e validade; essa limitacao consta na justificativa.
 """
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 
-COLUNAS_PREVISOES = {"medicamento_id", "demanda_prevista"}
-COLUNAS_ESTOQUE = {"medicamento_id", "estoque_disponivel"}
-COLUNAS_SEGURANCA = {"medicamento_id", "estoque_seguranca"}
+COLUNAS_PREVISOES = {"medicamento_id", "data_previsao", "demanda_prevista"}
+COLUNAS_ESTOQUE_SEGURANCA = {"medicamento_id", "estoque_seguranca"}
+COLUNAS_ESTOQUE = {"medicamento_id", "data", "estoque_disponivel"}
 COLUNAS_PEDIDOS = {"medicamento_id", "quantidade"}
 COLUNAS_SAIDA = [
     "medicamento_id",
@@ -29,136 +47,298 @@ def gerar_recomendacoes(
     estoque_seguranca: pd.DataFrame,
     pedidos_pendentes: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
-    """Calcula uma recomendação por medicamento para o horizonte previsto.
+    """Gera uma recomendacao de compra por medicamento previsto.
 
-    ``previsoes`` segue a seção 3 do contrato. ``estoque_atual`` contém o
-    saldo mais recente de cada medicamento, ``estoque_seguranca`` recebe a
-    saída da Issue #14 e ``pedidos_pendentes`` segue a seção 1.5. Pedidos
-    ausentes equivalem a zero.
+    Os DataFrames recebidos nunca sao modificados. A recomendacao permanece
+    fracionaria porque o contrato define ``float`` e nao exige arredondamento.
     """
-    _validar_colunas(previsoes, COLUNAS_PREVISOES, "previsões")
-    _validar_colunas(estoque_atual, COLUNAS_ESTOQUE, "estoque atual")
-    _validar_colunas(estoque_seguranca, COLUNAS_SEGURANCA, "estoque de segurança")
-    if previsoes.empty:
-        raise ValueError("As previsões não podem estar vazias.")
-
-    pedidos = (
-        pd.DataFrame(columns=["medicamento_id", "quantidade"])
-        if pedidos_pendentes is None
-        else pedidos_pendentes.copy()
+    _validar_dataframe(previsoes, "previsoes")
+    _validar_dataframe(estoque_atual, "estoque_atual")
+    _validar_dataframe(estoque_seguranca, "estoque_seguranca")
+    # Compatibilidade com a primeira versão da Issue #15, cuja ordem era
+    # (previsoes, estoques_seguranca, estoque_historico, pedidos).
+    if (
+        "estoque_seguranca" in estoque_atual.columns
+        and "estoque_disponivel" in estoque_seguranca.columns
+    ):
+        estoque_atual, estoque_seguranca = estoque_seguranca, estoque_atual
+    pedidos_pendentes = (
+        pd.DataFrame() if pedidos_pendentes is None else pedidos_pendentes
     )
-    _validar_colunas(pedidos, COLUNAS_PEDIDOS, "pedidos pendentes")
 
-    previsoes_tratadas = previsoes[["medicamento_id", "demanda_prevista"]].copy()
-    estoque_tratado = estoque_atual[["medicamento_id", "estoque_disponivel"]].copy()
-    seguranca_tratada = estoque_seguranca[
-        ["medicamento_id", "estoque_seguranca"]
-    ].copy()
-    pedidos_tratados = pedidos[["medicamento_id", "quantidade"]].copy()
+    previsoes = previsoes.copy()
+    estoque_atual = estoque_atual.copy()
+    if "data_previsao" not in previsoes.columns:
+        ordem = previsoes.groupby("medicamento_id", sort=False).cumcount()
+        previsoes["data_previsao"] = pd.Timestamp("1970-01-02") + pd.to_timedelta(
+            ordem, unit="D"
+        )
+    if "data" not in estoque_atual.columns:
+        estoque_atual["data"] = pd.Timestamp("1970-01-01")
 
-    _validar_identificadores(previsoes_tratadas, "previsões")
-    _validar_identificadores(estoque_tratado, "estoque atual")
-    _validar_identificadores(seguranca_tratada, "estoque de segurança")
-    if not pedidos_tratados.empty:
-        _validar_identificadores(pedidos_tratados, "pedidos pendentes")
+    _validar_colunas(previsoes, COLUNAS_PREVISOES, "previsoes")
+    _validar_colunas(estoque_seguranca, COLUNAS_ESTOQUE_SEGURANCA, "estoques_seguranca")
+    _validar_colunas(estoque_atual, COLUNAS_ESTOQUE, "estoque_historico")
+    _validar_dataframe(pedidos_pendentes, "pedidos_pendentes")
+    if not pedidos_pendentes.empty:
+        _validar_colunas(pedidos_pendentes, COLUNAS_PEDIDOS, "pedidos_pendentes")
+    if previsoes.empty:
+        raise ValueError("previsoes nao pode estar vazio.")
 
-    _validar_unicidade(estoque_tratado, "estoque atual")
-    _validar_unicidade(seguranca_tratada, "estoque de segurança")
+    demanda = previsoes[["medicamento_id", "data_previsao", "demanda_prevista"]].copy()
+    seguranca = estoque_seguranca[["medicamento_id", "estoque_seguranca"]].copy()
+    estoque = estoque_atual[["medicamento_id", "data", "estoque_disponivel"]].copy()
+    colunas_pedidos = [
+        coluna
+        for coluna in (
+            "medicamento_id",
+            "quantidade",
+            "pedido_id",
+            "data_pedido",
+            "data_prevista_entrega",
+        )
+        if coluna in pedidos_pendentes.columns
+    ]
+    pedidos = pedidos_pendentes[colunas_pedidos].copy()
 
-    _converter_nao_negativo(previsoes_tratadas, "demanda_prevista")
-    _converter_nao_negativo(estoque_tratado, "estoque_disponivel")
-    _converter_nao_negativo(seguranca_tratada, "estoque_seguranca")
-    _converter_nao_negativo(pedidos_tratados, "quantidade")
+    _validar_identificadores(demanda, "previsoes")
+    _validar_identificadores(seguranca, "estoques_seguranca")
+    _validar_identificadores(estoque, "estoque_historico")
+    if not pedidos.empty:
+        _validar_identificadores(pedidos, "pedidos_pendentes")
+    _converter_numerico_nao_negativo(demanda, "demanda_prevista", "previsoes")
+    _converter_numerico_nao_negativo(
+        seguranca, "estoque_seguranca", "estoques_seguranca"
+    )
+    _converter_numerico_nao_negativo(estoque, "estoque_disponivel", "estoque_historico")
+    if not pedidos.empty:
+        _converter_numerico_nao_negativo(pedidos, "quantidade", "pedidos_pendentes")
 
-    medicamentos = set(previsoes_tratadas["medicamento_id"])
-    _validar_cobertura(medicamentos, estoque_tratado, "estoque atual")
-    _validar_cobertura(medicamentos, seguranca_tratada, "estoque de segurança")
+    demanda["data_previsao"] = _converter_datas(
+        demanda["data_previsao"], "previsoes.data_previsao"
+    )
+    estoque["data"] = _converter_datas(estoque["data"], "estoque_historico.data")
+    inicio_horizonte = demanda["data_previsao"].min()
+    fim_horizonte = demanda["data_previsao"].max()
+    data_referencia = inicio_horizonte - pd.Timedelta(days=1)
 
-    demanda = previsoes_tratadas.groupby("medicamento_id", as_index=False)[
+    _rejeitar_duplicatas(demanda, ["medicamento_id", "data_previsao"], "previsoes")
+    _validar_horizonte_compartilhado(demanda)
+    _rejeitar_duplicatas(seguranca, ["medicamento_id"], "estoques_seguranca")
+    _rejeitar_duplicatas(estoque, ["medicamento_id", "data"], "estoque_historico")
+    if (
+        "pedido_id" in pedidos.columns
+        and not pedidos.empty
+        and (
+            pedidos["pedido_id"].isna().any() or pedidos["pedido_id"].duplicated().any()
+        )
+    ):
+        raise ValueError("pedidos_pendentes contem pedido_id ausente ou duplicado.")
+
+    demanda_total = demanda.groupby("medicamento_id", as_index=False)[
         "demanda_prevista"
     ].sum()
-    pedidos_agregados = (
-        pedidos_tratados.groupby("medicamento_id", as_index=False)["quantidade"]
+    _validar_resultado_finito(demanda_total, "demanda_prevista", "demanda agregada")
+    estoque_elegivel = estoque[estoque["data"] <= data_referencia]
+    estoque_atual = (
+        estoque_elegivel.sort_values(["medicamento_id", "data"])
+        .groupby("medicamento_id", as_index=False)
+        .tail(1)[["medicamento_id", "estoque_disponivel"]]
+    )
+    pedidos = _selecionar_pedidos_do_horizonte(
+        pedidos, data_referencia, inicio_horizonte, fim_horizonte
+    )
+    pedidos_total = (
+        pedidos.groupby("medicamento_id", as_index=False)["quantidade"]
         .sum()
         .rename(columns={"quantidade": "pedidos_confirmados"})
+        if not pedidos.empty
+        else pd.DataFrame(columns=["medicamento_id", "pedidos_confirmados"])
     )
+    if not pedidos_total.empty:
+        _validar_resultado_finito(
+            pedidos_total, "pedidos_confirmados", "pedidos agregados"
+        )
 
-    resultado = demanda.merge(
-        estoque_tratado, on="medicamento_id", validate="one_to_one"
+    resultado = demanda_total.merge(
+        seguranca, on="medicamento_id", how="left", validate="one_to_one"
     )
     resultado = resultado.merge(
-        seguranca_tratada, on="medicamento_id", validate="one_to_one"
+        estoque_atual, on="medicamento_id", how="left", validate="one_to_one"
     )
-    resultado = resultado.merge(pedidos_agregados, on="medicamento_id", how="left")
+    _validar_cobertura(resultado, "estoque_seguranca", "estoques_seguranca")
+    _validar_cobertura(
+        resultado,
+        "estoque_disponivel",
+        "Estoque atual ausente; estoque_historico ate a data de referencia",
+    )
+    resultado = resultado.merge(
+        pedidos_total, on="medicamento_id", how="left", validate="one_to_one"
+    )
     resultado["pedidos_confirmados"] = resultado["pedidos_confirmados"].fillna(0.0)
-    resultado["compra_recomendada"] = (
+
+    calculo = (
         resultado["demanda_prevista"]
         + resultado["estoque_seguranca"]
         - resultado["estoque_disponivel"]
         - resultado["pedidos_confirmados"]
-    ).clip(lower=0.0)
-    # A Issue #16 refina estes sinais usando prazo de entrega e validade dos lotes.
-    resultado["risco_falta"] = resultado.apply(_classificar_risco_falta, axis=1)
-    resultado["risco_vencimento"] = "baixo"
-    resultado["justificativa"] = resultado.apply(_gerar_justificativa, axis=1)
-
+    )
+    _validar_resultado_finito(
+        calculo.to_frame("compra_recomendada"),
+        "compra_recomendada",
+        "calculo da recomendacao",
+    )
+    calculo = calculo.mask(np.isclose(calculo, 0.0, rtol=0.0, atol=1e-12), 0.0)
+    resultado["compra_recomendada"] = calculo.clip(lower=0.0)
+    resultado["risco_falta"] = resultado["compra_recomendada"].map(
+        _classificar_risco_falta
+    )
+    resultado["risco_vencimento"] = resultado.apply(
+        _classificar_risco_vencimento, axis=1
+    )
+    resultado["justificativa"] = resultado.apply(_criar_justificativa, axis=1)
     return resultado[COLUNAS_SAIDA].sort_values("medicamento_id").reset_index(drop=True)
 
 
+def _validar_dataframe(df: pd.DataFrame, nome: str) -> None:
+    if not isinstance(df, pd.DataFrame):
+        raise TypeError(f"{nome} deve ser um pandas.DataFrame.")
+
+
 def _validar_colunas(df: pd.DataFrame, obrigatorias: set[str], nome: str) -> None:
+    _validar_dataframe(df, nome)
     faltantes = obrigatorias.difference(df.columns)
     if faltantes:
-        raise ValueError(
-            f"{nome.capitalize()} sem colunas obrigatórias: {sorted(faltantes)}."
-        )
+        raise ValueError(f"{nome} sem colunas obrigatorias: {sorted(faltantes)}.")
 
 
 def _validar_identificadores(df: pd.DataFrame, nome: str) -> None:
-    if df["medicamento_id"].isna().any():
-        raise ValueError(f"{nome.capitalize()} contém medicamento_id ausente.")
-
-
-def _validar_unicidade(df: pd.DataFrame, nome: str) -> None:
-    if df["medicamento_id"].duplicated().any():
-        raise ValueError(f"{nome.capitalize()} deve ter uma linha por medicamento.")
-
-
-def _converter_nao_negativo(df: pd.DataFrame, coluna: str) -> None:
-    df[coluna] = pd.to_numeric(df[coluna], errors="raise")
-    if df[coluna].isna().any() or (df[coluna] < 0).any():
-        raise ValueError(f"{coluna} não pode conter valores ausentes ou negativos.")
-
-
-def _validar_cobertura(medicamentos: set[str], df: pd.DataFrame, nome: str) -> None:
-    faltantes = medicamentos.difference(df["medicamento_id"])
-    if faltantes:
+    identificadores = df["medicamento_id"]
+    if identificadores.isna().any():
+        raise ValueError(f"{nome}.medicamento_id contem valor ausente.")
+    if not identificadores.map(lambda valor: isinstance(valor, str)).all():
+        raise TypeError(f"{nome}.medicamento_id deve conter apenas strings.")
+    if identificadores.str.strip().eq("").any():
+        raise ValueError(f"{nome}.medicamento_id contem valor vazio.")
+    if identificadores.ne(identificadores.str.strip()).any():
         raise ValueError(
-            f"{nome.capitalize()} ausente para: {', '.join(sorted(faltantes))}."
+            f"{nome}.medicamento_id nao pode conter espacos nas extremidades."
         )
 
 
-def _classificar_risco_falta(linha: pd.Series) -> str:
-    cobertura = linha["estoque_disponivel"] + linha["pedidos_confirmados"]
-    if cobertura < linha["demanda_prevista"]:
-        return "alto"
-    if cobertura < linha["demanda_prevista"] + linha["estoque_seguranca"]:
-        return "médio"
+def _converter_numerico_nao_negativo(df: pd.DataFrame, coluna: str, nome: str) -> None:
+    if df[coluna].map(lambda valor: isinstance(valor, (bool, np.bool_))).any():
+        raise TypeError(f"{nome}.{coluna} nao aceita valores booleanos.")
+    try:
+        df[coluna] = pd.to_numeric(df[coluna], errors="raise")
+    except (TypeError, ValueError) as erro:
+        raise ValueError(f"{nome}.{coluna} deve conter apenas numeros.") from erro
+    if (
+        df[coluna].isna().any()
+        or not np.isfinite(df[coluna].to_numpy(dtype=float)).all()
+    ):
+        raise ValueError(f"{nome}.{coluna} deve conter apenas valores finitos.")
+    if (df[coluna] < 0).any():
+        raise ValueError(f"{nome}.{coluna} nao pode conter valores negativos.")
+
+
+def _converter_datas(serie: pd.Series, nome: str) -> pd.Series:
+    if serie.map(lambda valor: isinstance(valor, (bool, np.bool_, int, float))).any():
+        raise TypeError(
+            f"{nome} deve conter datas, nao valores numericos ou booleanos."
+        )
+    try:
+        datas = pd.to_datetime(serie, errors="raise", utc=True)
+    except (TypeError, ValueError) as erro:
+        raise ValueError(f"{nome} contem datas invalidas.") from erro
+    if datas.isna().any():
+        raise ValueError(f"{nome} nao pode conter datas ausentes.")
+    return datas.dt.normalize()
+
+
+def _selecionar_pedidos_do_horizonte(
+    pedidos: pd.DataFrame,
+    data_referencia: pd.Timestamp,
+    inicio_horizonte: pd.Timestamp,
+    fim_horizonte: pd.Timestamp,
+) -> pd.DataFrame:
+    if pedidos.empty:
+        return pedidos
+    if "data_pedido" in pedidos.columns:
+        pedidos["data_pedido"] = _converter_datas(
+            pedidos["data_pedido"], "pedidos_pendentes.data_pedido"
+        )
+    if "data_prevista_entrega" in pedidos.columns:
+        pedidos["data_prevista_entrega"] = _converter_datas(
+            pedidos["data_prevista_entrega"], "pedidos_pendentes.data_prevista_entrega"
+        )
+    if (
+        "data_pedido" in pedidos.columns
+        and "data_prevista_entrega" in pedidos.columns
+        and (pedidos["data_pedido"] > pedidos["data_prevista_entrega"]).any()
+    ):
+        raise ValueError(
+            "pedidos_pendentes.data_pedido nao pode ser posterior a data_prevista_entrega."
+        )
+    if "data_pedido" in pedidos.columns:
+        pedidos = pedidos[pedidos["data_pedido"] <= data_referencia]
+    if "data_prevista_entrega" not in pedidos.columns:
+        return pedidos
+    return pedidos[
+        pedidos["data_prevista_entrega"].between(
+            inicio_horizonte, fim_horizonte, inclusive="both"
+        )
+    ]
+
+
+def _validar_horizonte_compartilhado(demanda: pd.DataFrame) -> None:
+    horizontes = demanda.groupby("medicamento_id")["data_previsao"].agg(frozenset)
+    if horizontes.map(lambda datas: datas != horizontes.iloc[0]).any():
+        raise ValueError(
+            "previsoes deve usar as mesmas datas de horizonte para todos os medicamentos."
+        )
+
+
+def _validar_resultado_finito(df: pd.DataFrame, coluna: str, contexto: str) -> None:
+    if not np.isfinite(df[coluna].to_numpy(dtype=float)).all():
+        raise ValueError(f"{contexto}.{coluna} produziu valor nao finito.")
+
+
+def _rejeitar_duplicatas(df: pd.DataFrame, colunas: list[str], nome: str) -> None:
+    if df.duplicated(colunas).any():
+        raise ValueError(f"{nome} contem chaves duplicadas em {colunas}.")
+
+
+def _validar_cobertura(resultado: pd.DataFrame, coluna: str, origem: str) -> None:
+    ausentes = resultado.loc[resultado[coluna].isna(), "medicamento_id"].tolist()
+    if ausentes:
+        raise ValueError(f"{origem} sem dados para medicamentos previstos: {ausentes}.")
+
+
+def _classificar_risco_falta(compra_recomendada: float) -> str:
+    """Heuristica temporaria ate a Task de classificacao de riscos."""
+    return "alto" if compra_recomendada > 0 else "baixo"
+
+
+def _classificar_risco_vencimento(_: pd.Series) -> str:
+    """Placeholder contratual; sem lotes nao ha avaliacao real de vencimento."""
     return "baixo"
 
 
-def _gerar_justificativa(linha: pd.Series) -> str:
-    componentes = (
-        f"demanda prevista {_formatar(linha['demanda_prevista'])}, "
-        f"estoque de segurança {_formatar(linha['estoque_seguranca'])}, "
-        f"estoque disponível {_formatar(linha['estoque_disponivel'])} e "
-        f"pedidos confirmados {_formatar(linha['pedidos_confirmados'])}"
+def _formatar_quantidade(valor: float) -> str:
+    return f"{valor:g}"
+
+
+def _criar_justificativa(linha: pd.Series) -> str:
+    demanda = _formatar_quantidade(linha["demanda_prevista"])
+    seguranca = _formatar_quantidade(linha["estoque_seguranca"])
+    disponivel = _formatar_quantidade(linha["estoque_disponivel"])
+    pedidos = _formatar_quantidade(linha["pedidos_confirmados"])
+    compra = _formatar_quantidade(linha["compra_recomendada"])
+    return (
+        f"Comprar {compra} unidades. Demanda prevista para o horizonte: {demanda} unidades; "
+        f"estoque de seguranca: "
+        f"{seguranca}; estoque disponivel mais recente: {disponivel}; pedidos confirmados: "
+        f"{pedidos}. Quantidade recomendada para compra: {compra} unidades. "
+        "Risco de vencimento ainda nao avaliado: requer dados de lotes e validade."
     )
-    if linha["compra_recomendada"] > 0:
-        return (
-            f"Comprar {_formatar(linha['compra_recomendada'])} unidades: {componentes}."
-        )
-    return f"Não é necessário comprar: {componentes}."
-
-
-def _formatar(valor: float) -> str:
-    return f"{float(valor):g}"
