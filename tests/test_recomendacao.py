@@ -1,52 +1,97 @@
-"""Testes de contrato do componente de recomendação disponível no MVP."""
+"""Testes de contrato e casos de borda do motor de recomendação."""
 
 import pandas as pd
+import pytest
 
-from src.recommendation.estoque_seguranca import (
-    COLUNAS_SAIDA,
-    calcular_estoque_seguranca,
-)
+from src.recommendation.motor_recomendacao import COLUNAS_SAIDA, gerar_recomendacoes
 
 
-def test_saida_estoque_seguranca_respeita_contrato() -> None:
-    consumo = pd.DataFrame(
+def _estoque_seguranca(*valores: tuple[str, float]) -> pd.DataFrame:
+    return pd.DataFrame(valores, columns=["medicamento_id", "estoque_seguranca"])
+
+
+def _estoque_atual(*valores: tuple[str, float]) -> pd.DataFrame:
+    return pd.DataFrame(valores, columns=["medicamento_id", "estoque_disponivel"])
+
+
+def test_saida_respeita_contrato_e_agrega_horizonte_e_pedidos() -> None:
+    previsoes = pd.DataFrame(
         {
-            "medicamento_id": ["med_a", "med_a", "med_b", "med_b"],
-            "consumo_unidades": [10.0, 20.0, 4.0, 4.0],
+            "medicamento_id": ["med_a", "med_a"],
+            "data_previsao": ["2025-01-01", "2025-01-02"],
+            "demanda_prevista": [10.0, 15.0],
         }
     )
-    referencias = pd.DataFrame(
+    pedidos = pd.DataFrame(
         {
-            "medicamento_id": ["med_a", "med_b"],
-            "prazo_entrega_dias": [7, 3],
+            "medicamento_id": ["med_a", "med_a"],
+            "quantidade": [2.0, 3.0],
         }
     )
 
-    resultado = calcular_estoque_seguranca(consumo, referencias)
+    resultado = gerar_recomendacoes(
+        previsoes,
+        _estoque_atual(("med_a", 0.0)),
+        _estoque_seguranca(("med_a", 5.0)),
+        pedidos,
+    )
 
     assert list(resultado.columns) == COLUNAS_SAIDA
-    assert resultado["medicamento_id"].tolist() == ["med_a", "med_b"]
-    assert not resultado.isna().any().any()
-    colunas_numericas = ["desvio_padrao_consumo", "prazo_entrega_dias", "estoque_seguranca"]
-    assert (resultado[colunas_numericas] >= 0).all().all()
+    assert len(resultado) == 1
+    assert resultado.loc[0, "medicamento_id"] == "med_a"
+    assert resultado.loc[0, "compra_recomendada"] == 25.0
+    assert resultado.loc[0, "risco_falta"] == "alto"
+    assert resultado.loc[0, "risco_vencimento"] == "baixo"
+    assert "Comprar 25 unidades" in resultado.loc[0, "justificativa"]
 
 
-def test_historico_minimo_e_consumo_zero_geram_buffer_zero() -> None:
-    consumo = pd.DataFrame(
-        {
-            "medicamento_id": ["sem_historico", "demanda_zero", "demanda_zero"],
-            "consumo_unidades": [8.0, 0.0, 0.0],
-        }
-    )
-    referencias = pd.DataFrame(
-        {
-            "medicamento_id": ["sem_historico", "demanda_zero"],
-            "prazo_entrega_dias": [7, 7],
-        }
+def test_estoque_zerado_recomenda_demanda_mais_seguranca() -> None:
+    previsoes = pd.DataFrame({"medicamento_id": ["med_a"], "demanda_prevista": [20.0]})
+
+    resultado = gerar_recomendacoes(
+        previsoes,
+        _estoque_atual(("med_a", 0.0)),
+        _estoque_seguranca(("med_a", 4.0)),
     )
 
-    resultado = calcular_estoque_seguranca(consumo, referencias).set_index("medicamento_id")
+    assert resultado.loc[0, "compra_recomendada"] == 24.0
+    assert resultado.loc[0, "risco_falta"] == "alto"
 
-    assert resultado.loc["sem_historico", "desvio_padrao_consumo"] == 0.0
-    assert resultado.loc["sem_historico", "estoque_seguranca"] == 0
-    assert resultado.loc["demanda_zero", "estoque_seguranca"] == 0
+
+def test_demanda_zero_e_estoque_suficiente_nao_recomendam_compra() -> None:
+    previsoes = pd.DataFrame(
+        {
+            "medicamento_id": ["demanda_zero", "estoque_suficiente"],
+            "demanda_prevista": [0.0, 10.0],
+        }
+    )
+
+    resultado = gerar_recomendacoes(
+        previsoes,
+        _estoque_atual(("demanda_zero", 0.0), ("estoque_suficiente", 20.0)),
+        _estoque_seguranca(("demanda_zero", 0.0), ("estoque_suficiente", 5.0)),
+    ).set_index("medicamento_id")
+
+    assert resultado.loc["demanda_zero", "compra_recomendada"] == 0.0
+    assert resultado.loc["demanda_zero", "risco_falta"] == "baixo"
+    assert resultado.loc["estoque_suficiente", "compra_recomendada"] == 0.0
+    assert resultado.loc["estoque_suficiente", "risco_falta"] == "baixo"
+
+
+def test_rejeita_entrada_negativa_ou_sem_estoque() -> None:
+    previsoes = pd.DataFrame({"medicamento_id": ["med_a"], "demanda_prevista": [-1.0]})
+
+    with pytest.raises(ValueError, match="demanda_prevista"):
+        gerar_recomendacoes(
+            previsoes,
+            _estoque_atual(("med_a", 0.0)),
+            _estoque_seguranca(("med_a", 0.0)),
+        )
+
+    previsoes.loc[0, "demanda_prevista"] = 1.0
+    with pytest.raises(ValueError, match="Estoque atual ausente"):
+        gerar_recomendacoes(
+            previsoes,
+            _estoque_atual(("outro", 0.0)),
+            _estoque_seguranca(("med_a", 0.0)),
+        )
