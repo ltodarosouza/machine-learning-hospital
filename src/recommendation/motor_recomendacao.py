@@ -18,9 +18,14 @@ Valores numericos ausentes, nao finitos, booleanos ou negativos sao rejeitados.
 As previsoes definem os medicamentos da saida. Seguranca e estoque sao
 obrigatorios para todos eles; pedidos ausentes equivalem a zero.
 
-Os riscos sao heuristicas temporarias. O risco de vencimento permanece
-``baixo`` apenas para compatibilidade com o enum do contrato, mas nao constitui
-avaliacao real sem lotes e validade; essa limitacao consta na justificativa.
+Os riscos sao heuristicas. Risco de falta compara cobertura de estoque com o
+prazo de entrega do fornecedor. Risco de vencimento (corrigido na Issue #53)
+compara, lote a lote, a quantidade de cada lote com o consumo esperado
+(demanda diaria x dias ate a validade) ate sua propria data de validade --
+nao depende do prazo de entrega do fornecedor, que e uma informacao de
+compra, nao de consumo. Quando nao ha lotes informados, o risco de
+vencimento permanece ``baixo`` por falta de dado, nao por avaliacao real;
+essa limitacao consta na justificativa.
 """
 
 from __future__ import annotations
@@ -220,13 +225,14 @@ def gerar_recomendacoes(
         demanda["data_previsao"].unique()
     )
     resultado = resultado.merge(
-        _resumir_lotes_proximos(lotes, data_referencia, resultado),
+        _avaliar_lotes(lotes, data_referencia, resultado),
         on="medicamento_id",
         how="left",
     )
     resultado[["quantidade_proxima_validade", "dias_ate_validade"]] = resultado[
         ["quantidade_proxima_validade", "dias_ate_validade"]
     ].fillna(0.0)
+    resultado["risco_vencimento"] = resultado["risco_vencimento"].fillna("baixo")
 
     calculo = (
         resultado["demanda_prevista"]
@@ -242,9 +248,6 @@ def gerar_recomendacoes(
     calculo = calculo.mask(np.isclose(calculo, 0.0, rtol=0.0, atol=1e-12), 0.0)
     resultado["compra_recomendada"] = calculo.clip(lower=0.0)
     resultado["risco_falta"] = resultado.apply(_classificar_risco_falta, axis=1)
-    resultado["risco_vencimento"] = resultado.apply(
-        _classificar_risco_vencimento, axis=1
-    )
     resultado["justificativa"] = resultado.apply(_criar_justificativa, axis=1)
     return resultado[COLUNAS_SAIDA].sort_values("medicamento_id").reset_index(drop=True)
 
@@ -364,29 +367,59 @@ def _validar_cobertura(resultado: pd.DataFrame, coluna: str, origem: str) -> Non
         raise ValueError(f"{origem} sem dados para medicamentos previstos: {ausentes}.")
 
 
-def _resumir_lotes_proximos(
+RISCO_VENCIMENTO_ORDEM = {"baixo": 0, "médio": 1, "alto": 2}
+# razao = quantidade_do_lote / consumo_esperado_ate_a_validade.
+# > 1.0  -> nao da tempo de consumir tudo -> alto.
+# > 0.7  -> vai ficar apertado, ainda sem estourar -> medio.
+# caso contrario -> baixo.
+LIMIAR_VENCIMENTO_MEDIO = 0.7
+
+
+def _avaliar_lotes(
     lotes: pd.DataFrame, data_referencia: pd.Timestamp, resultado: pd.DataFrame
 ) -> pd.DataFrame:
-    """Soma lotes que vencem até o prazo de entrega de cada medicamento."""
+    """Avalia cada lote contra o consumo esperado até sua validade; retorna o pior caso por medicamento.
+
+    Corrigido na Issue #53: a versão anterior só considerava lotes que
+    venciam até o `prazo_entrega_dias` do fornecedor — um lote vencendo em
+    15 dias era ignorado se o prazo de entrega fosse 7, mesmo que 15 dias não
+    bastassem para consumir a quantidade daquele lote no ritmo normal. Agora
+    cada lote é comparado, individualmente, ao que se espera consumir
+    (`demanda_diaria × dias até a validade`) até a sua própria data de
+    validade — sem depender do prazo de entrega, que é informação de compra,
+    não de consumo. Quando um medicamento tem mais de um lote, reportamos o
+    pior caso (maior severidade), com a quantidade/prazo do lote responsável.
+    """
+    colunas_vazias = ["medicamento_id", "quantidade_proxima_validade", "dias_ate_validade", "risco_vencimento"]
     if lotes.empty:
-        return pd.DataFrame(
-            columns=[
-                "medicamento_id",
-                "quantidade_proxima_validade",
-                "dias_ate_validade",
-            ]
-        )
-    prazo = resultado.set_index("medicamento_id")["prazo_entrega_dias"]
+        return pd.DataFrame(columns=colunas_vazias)
+
+    demanda_diaria = resultado.set_index("medicamento_id")["demanda_diaria"]
     copia = lotes.copy()
     copia["dias_ate_validade"] = (
         copia["data_validade"] - data_referencia
     ).dt.days.clip(lower=0)
-    copia["prazo_entrega_dias"] = copia["medicamento_id"].map(prazo).fillna(0)
-    proximos = copia[copia["dias_ate_validade"] <= copia["prazo_entrega_dias"]]
-    return proximos.groupby("medicamento_id", as_index=False).agg(
-        quantidade_proxima_validade=("quantidade_atual", "sum"),
-        dias_ate_validade=("dias_ate_validade", "min"),
+    copia["demanda_diaria"] = copia["medicamento_id"].map(demanda_diaria).fillna(0)
+    consumo_esperado = copia["demanda_diaria"] * copia["dias_ate_validade"]
+
+    razao = np.where(
+        consumo_esperado > 0,
+        copia["quantidade_atual"] / consumo_esperado,
+        np.where(copia["quantidade_atual"] > 0, np.inf, 0.0),
     )
+    copia["risco_vencimento"] = np.select(
+        [razao > 1.0, razao > LIMIAR_VENCIMENTO_MEDIO],
+        ["alto", "médio"],
+        default="baixo",
+    )
+    copia["_ordem_risco"] = copia["risco_vencimento"].map(RISCO_VENCIMENTO_ORDEM)
+
+    pior_lote_por_medicamento = copia.loc[
+        copia.groupby("medicamento_id")["_ordem_risco"].idxmax()
+    ]
+    return pior_lote_por_medicamento.rename(columns={"quantidade_atual": "quantidade_proxima_validade"})[
+        ["medicamento_id", "quantidade_proxima_validade", "dias_ate_validade", "risco_vencimento"]
+    ]
 
 
 def _classificar_risco_falta(linha: pd.Series) -> str:
@@ -403,17 +436,6 @@ def _classificar_risco_falta(linha: pd.Series) -> str:
     if cobertura_dias <= prazo * 1.5:
         return "médio"
     return "baixo"
-
-
-def _classificar_risco_vencimento(linha: pd.Series) -> str:
-    """Compara lote próximo do vencimento ao consumo possível antes dele."""
-    proximo = linha["quantidade_proxima_validade"]
-    if proximo <= 0:
-        return "baixo"
-    consumo_ate_validade = linha["demanda_diaria"] * linha["dias_ate_validade"]
-    if proximo > consumo_ate_validade:
-        return "alto"
-    return "médio"
 
 
 def _formatar_quantidade(valor: float) -> str:
@@ -444,5 +466,5 @@ def _criar_justificativa(linha: pd.Series) -> str:
             f"{linha['dias_ate_validade']:g} dias."
         )
     else:
-        texto += "Risco de vencimento baixo: não há lotes com validade próxima ao prazo de entrega."
+        texto += "Risco de vencimento baixo: nenhum lote tem quantidade acima do consumo esperado até sua validade."
     return texto

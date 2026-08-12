@@ -33,7 +33,7 @@ Saída (todas em `data/processed/`, commitadas — ver `.gitignore`, dado sinté
 
 **Importante — números de base são premissas do time, não dados reais:** consumo médio diário por medicamento, preços e prazos de entrega em `MEDICAMENTOS_REF` (dentro do script) são estimativas de ordem de grandeza para o MVP fazer sentido, não vieram de nenhum hospital real. Isso é consistente com o framing já adotado no projeto (ver `docs/negocio/CONTEXTO.md`, seção de cuidado com números de impacto) — se questionado na banca, a resposta é "dataset sintético calibrado com padrões plausíveis, não dado real".
 
-**Casos propositalmente extremos para a demonstração:** `ceftriaxona_inj` e `hidrocortisona_inj` têm um lote grande com validade próxima (risco de vencimento); `adrenalina_inj` tem estoque cronicamente baixo frente ao consumo (risco de falta, é o item com mais dias de ruptura no período). Isso dá exemplos concretos e visuais para o dashboard, em vez de precisar torcer para o acaso gerar um caso interessante.
+**Casos propositalmente extremos para a demonstração:** `ceftriaxona_inj` e `hidrocortisona_inj` concentram a maior parte do seu estoque **real** (não inventado) num único lote de validade curta (`gerar_lotes`, calculada a partir do próprio consumo-base do medicamento, não um número fixo) — o suficiente para o motor de recomendação classificar risco de vencimento alto de verdade, sem quebrar a invariante `soma(lotes) == estoque_disponivel` (contrato seção 1.4, Issue #53). `adrenalina_inj` tem estoque cronicamente baixo frente ao consumo (risco de falta, é o item com mais dias de ruptura no período) — esse já surge naturalmente da simulação, sem precisar forçar nada.
 
 ### `ingestao_clima.py` (Issue #4) — pronto
 

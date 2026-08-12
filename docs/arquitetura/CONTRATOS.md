@@ -88,6 +88,8 @@ Definido na Issue #1 (kickoff). O dado é dividido em 5 tabelas — evita repeti
 | `data_entrada` | date | Quando o lote entrou no estoque |
 | `data_validade` | date | Validade do lote |
 
+**Invariante de inventário (Issue #53):** para cada `medicamento_id`, a soma de `quantidade_atual` em `lotes.csv` deve ser igual a `estoque_disponivel` do último dia em `consumo_diario.csv` (tabela 1.1), a menos de uma tolerância de arredondamento de **no máximo 1 unidade** (`TOLERANCIA_INVENTARIO_UNIDADES` em `gerar_dataset_sintetico.py`) — os dois representam o mesmo estoque físico, só que quebrado por lote de um lado e agregado do outro. `validar_lotes()` verifica isso automaticamente sempre que o dataset é gerado. Antes desta correção, essa invariante não era garantida: dois medicamentos tinham a quantidade dos lotes sobrescrita para criar exemplos "dramáticos" de risco (ver histórico de mudanças no fim deste arquivo).
+
 ### 1.5 `data/processed/pedidos_pendentes.csv` — pedidos já feitos e ainda não recebidos
 
 | Coluna | Tipo | Descrição |
@@ -222,3 +224,4 @@ Registrar aqui sempre que um contrato mudar depois de combinado, com data e quem
 | 2026-08-12 | Issue #20 | Dashboard passou a executar o pipeline real; `nome` e `categoria` foram formalizados como enriquecimento de apresentação via cadastro | dashboard, recommendation |
 | 2026-08-12 | Issue #50 | Consolidada a suíte canônica do motor e documentadas as fronteiras de `risco_falta` em três níveis | recommendation, dashboard |
 | 2026-08-12 | Melhoria pós-#13 | Período histórico estendido de 2 para 4 anos (2022-01-01 a 2025-12-31, 1.461 dias) — mais ciclos sazonais para o modelo aprender. Todos os dados externos/sintéticos regenerados (`data/external/*`, `data/processed/*`). Quem já tinha o dataset antigo localmente deve rodar `git pull` e conferir os arquivos em `data/` de novo | Todos |
+| 2026-08-12 | Issue #53 | Formalizada a invariante soma(lotes) == estoque_disponivel (tabela 1.4); risco de vencimento não depende mais de `prazo_entrega_dias`, compara cada lote ao consumo esperado até sua validade. `lotes.csv` regenerado — quem tinha o dataset local deve rodar `git pull` de novo | data_ingestion, recommendation, dashboard |
