@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.venv/
+venv/
+env/
+.Python
+build/
+dist/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Data (nunca versionar dados reais/sensíveis; usar data/raw como local, não no git)
+data/raw/*
+!data/raw/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+data/external/*
+!data/external/.gitkeep
+*.csv
+*.xlsx
+*.parquet
+!data/**/sample_*.csv
+
+# Modelos treinados (pesados, não versionar binário)
+*.pkl
+*.joblib
+*.h5
+models_output/
+
+# Env / segredos
+.env
+.env.*
+*.key
+secrets.*
+
+# Streamlit
+.streamlit/secrets.toml
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Logs
+*.log

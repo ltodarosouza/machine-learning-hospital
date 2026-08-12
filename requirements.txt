@@ -1,0 +1,17 @@
+# Dados / core
+pandas
+numpy
+
+# Modelagem
+scikit-learn
+prophet
+
+# Dashboard
+streamlit
+
+# Testes
+pytest
+
+# Utilitários
+python-dotenv
+requests
