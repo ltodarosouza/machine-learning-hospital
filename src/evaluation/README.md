@@ -12,7 +12,7 @@ python src/evaluation/comparar_modelos.py
 
 Gera [`docs/arquitetura/RESULTADOS_MODELAGEM.md`](../../docs/arquitetura/RESULTADOS_MODELAGEM.md) com o relatório completo.
 
-**Resultado atual (período de teste 2025-12-04 a 2025-12-31, 4 janelas de 7 dias, dataset de 4 anos):** o modelo de ML reduz o MAE agregado em **1.8%** frente ao baseline (9.43 vs. 9.60 unidades/dia), vencendo em 11 dos 20 medicamentos e perdendo em 9. **Reportado sem maquiagem** — é uma vantagem modesta, não uma vitória esmagadora, e essa é a informação real que temos agora.
+**Resultado atual (período de teste 2025-12-04 a 2025-12-31, 4 janelas de 7 dias, dataset de 4 anos):** o modelo de ML reduz o MAE agregado em **1.3%** frente ao baseline (9.47 vs. 9.60 unidades/dia), vencendo em 13 dos 20 medicamentos e perdendo em 7. **Reportado sem maquiagem** — é uma vantagem modesta, não uma vitória esmagadora, e essa é a informação real que temos agora.
 
 Este número passou por três rodadas de melhoria — ver [`src/models/README.md`](../models/README.md) para o histórico completo: (1) troca de Random Forest para XGBoost; (2) extensão do período histórico de 2 para 4 anos + tuning de hiperparâmetros; (3) correção de vazamento na normalização de features (feita por outra pessoa do time) exigiu retunar de novo. **Importante:** o `%` de redução não é comparável entre rodadas 1→2, porque estender o dataset sintético mudou os valores do período de teste (mesma data de calendário, valor diferente — efeito do gerador usar uma sequência de aleatoriedade sobre o array do período inteiro). Dentro de cada versão do dataset/features, a comparação é válida e honesta.
 

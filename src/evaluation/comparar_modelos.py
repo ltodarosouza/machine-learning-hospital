@@ -23,9 +23,10 @@ import sys
 from pathlib import Path
 
 import pandas as pd
+from xgboost import __version__ as XGBOOST_VERSION
 
 sys.path.append(str(Path(__file__).resolve().parents[2]))
-from src.models.baseline import gerar_previsoes_baseline_periodo
+from src.models.baseline import JANELA_PADRAO_DIAS, gerar_previsoes_baseline_periodo
 from src.models.modelo_demanda import avaliar_validacao_temporal
 from src.utils.config import HORIZONTE_PREVISAO_DIAS, PERIODO_FIM, PERIODO_INICIO
 
@@ -134,6 +135,7 @@ def gerar_relatorio_markdown(
         + (f", totalizando {previsoes_por_metodo} previsões por método" if previsoes_por_metodo is not None else ""),
         f"- Baseline: média móvel simples dos {JANELA_PADRAO_DIAS} dias anteriores, projetada de forma flat por {HORIZONTE_PREVISAO_DIAS} dias",
         "- Modelo: `XGBRegressor` compartilhado entre medicamentos e horizontes",
+        f"- Ambiente: Python 3.14; `xgboost=={XGBOOST_VERSION}`",
         f"- Parâmetros do modelo: `n_estimators={n_estimators}`, `max_depth=5`, `learning_rate=0.1`, `subsample=0.8`, `colsample_bytree=0.8`, `random_state=42`, `n_jobs=-1`",
         f"- Horizonte: {HORIZONTE_PREVISAO_DIAS} dias; `MAPE` calculado somente nos dias com consumo realizado maior que zero",
         "",

@@ -103,8 +103,8 @@ entre si, só os valores absolutos de MAE **dentro** da mesma versão de dataset
 **Resultado final** (dataset de 4 anos, features com normalização causal,
 XGBoost retunado), documentado em
 [`docs/arquitetura/RESULTADOS_MODELAGEM.md`](../../docs/arquitetura/RESULTADOS_MODELAGEM.md):
-MAE agregado de **9.43** unidades/dia, **1.8%** menor que o baseline (9.60),
-vencendo em 11 dos 20 medicamentos. É uma vantagem modesta — reportado sem
+MAE agregado de **9.47** unidades/dia, **1.3%** menor que o baseline (9.60),
+vencendo em 13 dos 20 medicamentos. É uma vantagem modesta — reportado sem
 maquiagem, como todo o resto desta avaliação. Ganhos adicionais provavelmente
 exigem mais dado real (não sintético) ou features novas, não só mais tuning:
 ver a resposta sobre "meta de 10%" na conversa do projeto para o racional
