@@ -263,7 +263,7 @@ def gerar_sinais_internos(externos: pd.DataFrame, consumo_diario: pd.DataFrame, 
 # ---------------------------------------------------------------------------
 # 5. Lotes (contrato 1.4) — derivados do estoque final de cada medicamento,
 #    com 2 a 3 casos propositalmente "extremos" para dar exemplos reais de
-#    risco de vencimento e de ruptura no dashboard/pitch.
+#    risco de vencimento e de ruptura no dashboard.
 # ---------------------------------------------------------------------------
 
 # medicamento_id escolhidos deliberadamente para ilustrar os dois riscos do projeto

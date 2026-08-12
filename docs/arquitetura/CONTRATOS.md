@@ -40,7 +40,7 @@ Quem pegar uma task trabalha com um **mock/exemplo pequeno** do contrato de entr
 | `adrenalina_inj` | Adrenalina injetável | Emergência/controlado |
 | `diazepam` | Diazepam | Emergência/controlado |
 
-Categorias `Respiratório` e itens pediátricos devem reagir a `temperatura_media`/`chuva_mm`; nenhum item aqui tem correlação direta esperada com dengue — se quisermos deixar isso mais explícito para o pitch, considerar adicionar um item tipicamente ligado a arboviroses (ex. solução de reidratação oral) numa iteração futura.
+Categorias `Respiratório` e itens pediátricos devem reagir a `temperatura_media`/`chuva_mm`; nenhum item aqui tem correlação direta esperada com dengue — se quisermos deixar isso mais explícito na demonstração, considerar adicionar um item tipicamente ligado a arboviroses (ex. solução de reidratação oral) numa iteração futura.
 
 ## 1. Schema de dados processados (saída de `data_ingestion`, entrada de `features`)
 

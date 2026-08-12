@@ -32,8 +32,7 @@ machine-learning-hospital/
 │   └── components/
 ├── docs/
 │   ├── negocio/               # Contexto do problema, cenários de impacto, mercado
-│   ├── arquitetura/           # Contratos de interface entre módulos, schema de dados
-│   └── pitch/                 # Material para apresentação/banca
+│   └── arquitetura/           # Contratos de interface entre módulos, schema de dados
 ├── tests/                     # Testes automatizados
 └── scripts/                   # Scripts utilitários (setup, geração de dados sintéticos, etc.)
 ```
