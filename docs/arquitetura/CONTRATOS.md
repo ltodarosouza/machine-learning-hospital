@@ -12,7 +12,7 @@ Quem pegar uma task trabalha com um **mock/exemplo pequeno** do contrato de entr
 
 - **Hospital/setor fictício:** Pronto-Socorro / Emergência de um hospital fictício. Escolhido porque tem forte ligação com as variáveis externas do projeto (clima, dengue), o que torna a demonstração do valor do modelo mais clara.
 - **Região de referência (para dados externos reais):** João Pessoa – PB. O hospital é fictício, mas o clima e a epidemiologia usados para calibrar o dataset sintético vêm de dados reais dessa cidade (ver Issue #2 / `FONTES_DADOS.md`).
-- **Período histórico sintético:** 2 anos de dados diários — **2024-01-01 a 2025-12-31** (731 dias), fechado na Issue #6. Constantes em `src/utils/config.py` (`PERIODO_INICIO`, `PERIODO_FIM`) — todo script de geração/ingestão deve importar de lá, nunca hardcodar as datas de novo.
+- **Período histórico sintético:** 4 anos de dados diários — **2022-01-01 a 2025-12-31** (1.461 dias). Fechado inicialmente em 2 anos na Issue #6, estendido para 4 anos depois da Issue #13 mostrar uma vantagem pequena do modelo de ML sobre o baseline (mais histórico = mais ciclos sazonais para o modelo aprender). Constantes em `src/utils/config.py` (`PERIODO_INICIO`, `PERIODO_FIM`) — todo script de geração/ingestão deve importar de lá, nunca hardcodar as datas de novo.
 - **Horizonte de previsão:** 7 dias.
 - **Prazo de entrega do fornecedor (lead time):** ~7 dias como padrão, variando por medicamento (alguns itens — ex. controlados/adrenalina — têm prazo maior). Definido por medicamento na tabela de referência (seção 1.3).
 - **Lista de medicamentos do MVP (20 itens):**
@@ -221,3 +221,4 @@ Registrar aqui sempre que um contrato mudar depois de combinado, com data e quem
 | 2026-08-12 | Issues #15/#24 | Definida a agregação da demanda prevista no horizonte e publicada a função base do motor de recomendação | recommendation, dashboard, evaluation |
 | 2026-08-12 | Issue #20 | Dashboard passou a executar o pipeline real; `nome` e `categoria` foram formalizados como enriquecimento de apresentação via cadastro | dashboard, recommendation |
 | 2026-08-12 | Issue #50 | Consolidada a suíte canônica do motor e documentadas as fronteiras de `risco_falta` em três níveis | recommendation, dashboard |
+| 2026-08-12 | Melhoria pós-#13 | Período histórico estendido de 2 para 4 anos (2022-01-01 a 2025-12-31, 1.461 dias) — mais ciclos sazonais para o modelo aprender. Todos os dados externos/sintéticos regenerados (`data/external/*`, `data/processed/*`). Quem já tinha o dataset antigo localmente deve rodar `git pull` e conferir os arquivos em `data/` de novo | Todos |

@@ -10,12 +10,10 @@ Roda o baseline (`src/models/baseline.py`, Issue #11) e o modelo de ML (`src/mod
 python src/evaluation/comparar_modelos.py
 ```
 
-Gera [`docs/arquitetura/RESULTADOS_MODELAGEM.md`](../../docs/arquitetura/RESULTADOS_MODELAGEM.md) com o relatório completo e os metadados da execução. Para reproduzir os números no estado atual do repositório, execute:
+Gera [`docs/arquitetura/RESULTADOS_MODELAGEM.md`](../../docs/arquitetura/RESULTADOS_MODELAGEM.md) com o relatório completo.
 
-```bash
-python src/evaluation/comparar_modelos.py
-```
+**Resultado atual (período de teste 2025-12-04 a 2025-12-31, 4 janelas de 7 dias, dataset de 4 anos):** o modelo de ML reduz o MAE agregado em **1.8%** frente ao baseline (9.43 vs. 9.60 unidades/dia), vencendo em 11 dos 20 medicamentos e perdendo em 9. **Reportado sem maquiagem** — é uma vantagem modesta, não uma vitória esmagadora, e essa é a informação real que temos agora.
 
-**Resultado atual (período de teste 2025-12-04 a 2025-12-31, 4 janelas de 7 dias):** o modelo de ML reduz o MAE agregado em **2.0%** frente ao baseline (9.79 vs. 9.99 unidades/dia), vencendo em 13 dos 20 medicamentos e perdendo em 7. **Reportado sem maquiagem** — a vitória é pequena e não é unânime, e isso é informação real, não um problema a esconder. Ver o relatório completo para o detalhamento por medicamento e para decidir se vale a pena investir em melhorar o modelo (mais dado de treino, outras features, outro algoritmo) antes de seguir para o motor de recomendação.
+Este número passou por três rodadas de melhoria — ver [`src/models/README.md`](../models/README.md) para o histórico completo: (1) troca de Random Forest para XGBoost; (2) extensão do período histórico de 2 para 4 anos + tuning de hiperparâmetros; (3) correção de vazamento na normalização de features (feita por outra pessoa do time) exigiu retunar de novo. **Importante:** o `%` de redução não é comparável entre rodadas 1→2, porque estender o dataset sintético mudou os valores do período de teste (mesma data de calendário, valor diferente — efeito do gerador usar uma sequência de aleatoriedade sobre o array do período inteiro). Dentro de cada versão do dataset/features, a comparação é válida e honesta.
 
 **Por que só 4 janelas (28 dias) de teste:** o modelo de ML é retreinado do zero a cada janela (é o jeito correto de simular "o que o modelo saberia prever, sem olhar o futuro"), o que fica lento com muitas janelas. 28 dias foi uma escolha de custo-benefício para essa task — se o time achar pouco, `avaliar_modelo_periodo` aceita qualquer intervalo de datas.

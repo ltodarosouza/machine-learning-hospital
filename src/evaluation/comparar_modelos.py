@@ -25,13 +25,13 @@ from pathlib import Path
 import pandas as pd
 
 sys.path.append(str(Path(__file__).resolve().parents[2]))
-from src.models.baseline import JANELA_PADRAO_DIAS, gerar_previsoes_baseline_periodo
+from src.models.baseline import gerar_previsoes_baseline_periodo
 from src.models.modelo_demanda import avaliar_validacao_temporal
-from src.utils.config import HORIZONTE_PREVISAO_DIAS
+from src.utils.config import HORIZONTE_PREVISAO_DIAS, PERIODO_FIM, PERIODO_INICIO
 
 DADOS_MODELAGEM = Path(__file__).resolve().parents[2] / "data" / "processed" / "consumo_medicamentos.csv"
 SAIDA_METRICAS = Path(__file__).resolve().parents[2] / "docs" / "arquitetura" / "RESULTADOS_MODELAGEM.md"
-N_ESTIMATORS_PADRAO = 100
+N_ESTIMATORS_PADRAO = 500
 
 
 def obter_commit_atual() -> str:
@@ -64,7 +64,7 @@ def avaliar_modelo_periodo(
     data_inicio_teste: str,
     data_fim_teste: str,
     horizonte: int = HORIZONTE_PREVISAO_DIAS,
-    n_estimators: int = 100,
+    n_estimators: int = 500,
 ) -> pd.DataFrame:
     """Previsões do modelo de ML no período de teste — retreina a cada janela, sem olhar o futuro."""
     inicio = pd.Timestamp(data_inicio_teste)
@@ -129,12 +129,12 @@ def gerar_relatorio_markdown(
         "## Metadados da execução",
         "",
         f"- Commit do código e dos dados avaliados: `{commit_avaliado}`",
-        "- Dataset: `data/processed/consumo_medicamentos.csv` (20 medicamentos, 731 dias)",
+        f"- Dataset: `data/processed/consumo_medicamentos.csv` ({PERIODO_INICIO} a {PERIODO_FIM}; 20 medicamentos, 1.461 dias)",
         f"- Avaliação: 4 janelas sucessivas de {HORIZONTE_PREVISAO_DIAS} dias"
         + (f", totalizando {previsoes_por_metodo} previsões por método" if previsoes_por_metodo is not None else ""),
         f"- Baseline: média móvel simples dos {JANELA_PADRAO_DIAS} dias anteriores, projetada de forma flat por {HORIZONTE_PREVISAO_DIAS} dias",
-        "- Modelo: `RandomForestRegressor` compartilhado entre medicamentos e horizontes",
-        f"- Parâmetros do modelo: `n_estimators={n_estimators}`, `min_samples_leaf=3`, `random_state=42`, `n_jobs=-1`",
+        "- Modelo: `XGBRegressor` compartilhado entre medicamentos e horizontes",
+        f"- Parâmetros do modelo: `n_estimators={n_estimators}`, `max_depth=5`, `learning_rate=0.1`, `subsample=0.8`, `colsample_bytree=0.8`, `random_state=42`, `n_jobs=-1`",
         f"- Horizonte: {HORIZONTE_PREVISAO_DIAS} dias; `MAPE` calculado somente nos dias com consumo realizado maior que zero",
         "",
         "Para regenerar este relatório no estado atual do repositório:",

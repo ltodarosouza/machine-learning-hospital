@@ -5,6 +5,7 @@ numpy
 # Modelagem
 scikit-learn
 prophet
+xgboost
 
 # Dashboard
 streamlit
