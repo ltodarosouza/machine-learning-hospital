@@ -1,7 +1,6 @@
-"""Testes da invariante de inventário entre lotes e estoque (Issue #53),
-dos estados latentes persistentes de surto (Issue #58) e das classes de
-persistência por medicamento (Issue #61)."""
+"""Testes do gerador sintético (Issues #53, #58, #59, #60 e #61)."""
 
+import inspect
 import numpy as np
 import pandas as pd
 import pytest
@@ -16,9 +15,13 @@ from src.data_ingestion.gerar_dataset_sintetico import (
     _distribuir_quantidade_inteira,
     _perfil_persistencia_por_categoria,
     fator_surto,
+    gerar_consumo_diario,
     gerar_estado_surto,
     gerar_ruido_ar1,
+    gerar_sinais_internos,
     montar_medicamentos_ref,
+    simular_estoque,
+    validar_consumo_diario,
     validar_lotes,
 )
 
@@ -35,6 +38,45 @@ def _consumo_diario(estoque_final_a: float, estoque_final_b: float) -> pd.DataFr
             "estoque_disponivel": [estoque_final_a + 5, estoque_final_a, estoque_final_b + 5, estoque_final_b],
         }
     )
+
+
+def _externos(n_dias: int = 90) -> pd.DataFrame:
+    datas = pd.date_range("2025-01-01", periods=n_dias, freq="D")
+    return pd.DataFrame(
+        {
+            "data": datas,
+            "temperatura_media": np.linspace(24, 29, n_dias),
+            "chuva_mm": np.tile([0.0, 4.0, 12.0], n_dias // 3),
+            "casos_dengue_regiao": np.linspace(10, 40, n_dias),
+            "feriado": np.zeros(n_dias, dtype=bool),
+        }
+    )
+
+
+def test_atendimentos_sao_gerados_sem_consumo_como_entrada() -> None:
+    assert "consumo_diario" not in inspect.signature(gerar_sinais_internos).parameters
+
+    externos = _externos()
+    sinais_1 = gerar_sinais_internos(externos, np.random.default_rng(42))
+    sinais_2 = gerar_sinais_internos(externos, np.random.default_rng(42))
+
+    pd.testing.assert_frame_equal(sinais_1, sinais_2)
+    assert list(sinais_1.columns) == ["data", "atendimentos_ps", "ocupacao_leitos_pct"]
+    assert (sinais_1["atendimentos_ps"] >= 30).all()
+    assert sinais_1["ocupacao_leitos_pct"].between(20, 100).all()
+
+
+def test_consumo_usa_atendimentos_gerados_antes_dele() -> None:
+    externos = _externos()
+    medicamentos = montar_medicamentos_ref().query("medicamento_id == 'ibuprofeno'").copy()
+    sinais = gerar_sinais_internos(externos, np.random.default_rng(42))
+    sinais_altos = sinais.copy()
+    sinais_altos["atendimentos_ps"] *= 2
+
+    consumo_normal = gerar_consumo_diario(externos, medicamentos, np.random.default_rng(7), sinais)
+    consumo_alto = gerar_consumo_diario(externos, medicamentos, np.random.default_rng(7), sinais_altos)
+
+    assert consumo_alto["consumo_unidades"].mean() > consumo_normal["consumo_unidades"].mean() * 1.5
 
 
 def test_validar_lotes_aceita_soma_igual_ao_estoque() -> None:
@@ -187,3 +229,49 @@ def test_medicamentos_ref_tem_perfil_de_persistencia_para_todos() -> None:
     for categoria in CATEGORIAS_PERFIL_ERRATICO:
         if categoria in set(ref["categoria"]):
             assert (ref.loc[ref["categoria"] == categoria, "_perfil_persistencia"] == "erratico").all()
+
+
+def test_ruptura_censura_dispensacao_mas_preserva_demanda_latente() -> None:
+    """A demanda existe mesmo sem saldo, mas não pode ser dispensada fisicamente."""
+    demanda = pd.DataFrame(
+        {
+            "data": pd.date_range("2025-01-01", periods=5, freq="D").astype(str),
+            "medicamento_id": ["med_a"] * 5,
+            "consumo_unidades": [0.0, 10.0, 10.0, 10.0, 10.0],
+        }
+    )
+    referencia = pd.DataFrame(
+        {"medicamento_id": ["med_a"], "prazo_entrega_dias": [3]}
+    )
+
+    resultado = simular_estoque(demanda, referencia, np.random.default_rng(7))
+
+    assert (resultado["dispensacao_unidades"] <= resultado["consumo_unidades"]).all()
+    assert np.allclose(
+        resultado["consumo_unidades"],
+        resultado["dispensacao_unidades"] + resultado["demanda_nao_atendida"],
+    )
+    assert (resultado["demanda_nao_atendida"] > 0).any()
+    assert (
+        resultado.loc[resultado["demanda_nao_atendida"] > 0, "dispensacao_unidades"]
+        == 0
+    ).all()
+
+
+def test_validar_consumo_diario_rejeita_balanco_de_demanda_invalido() -> None:
+    datas = pd.date_range("2022-01-01", "2025-12-31", freq="D")
+    consumo = pd.DataFrame(
+        {
+            "data": datas.astype(str),
+            "medicamento_id": ["med_a"] * len(datas),
+            "consumo_unidades": [10.0] * len(datas),
+            "dispensacao_unidades": [7.0] * len(datas),
+            "demanda_nao_atendida": [1.0] * len(datas),
+            "entradas_unidades": [0.0] * len(datas),
+            "estoque_disponivel": [0.0] * len(datas),
+        }
+    )
+    referencia = pd.DataFrame({"medicamento_id": ["med_a"]})
+
+    with pytest.raises(ValueError, match="dispensacao_unidades mais demanda_nao_atendida"):
+        validar_consumo_diario(consumo, referencia)

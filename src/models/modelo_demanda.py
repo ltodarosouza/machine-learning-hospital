@@ -228,7 +228,16 @@ def _colunas_preditivas(dados: pd.DataFrame) -> list[str]:
     # passadas, nao causa da demanda futura - o experimento de comparacao de
     # modelos mostrou que remove-las reduz o MAE em todas as configuracoes
     # testadas (ver docs/arquitetura/RESULTADOS_MODELAGEM.md).
-    excluir = {"data", "consumo_unidades", "_alvo_consumo", "_data_alvo", "estoque_disponivel", "entradas_unidades"}
+    excluir = {
+        "data",
+        "consumo_unidades",
+        "dispensacao_unidades",
+        "demanda_nao_atendida",
+        "_alvo_consumo",
+        "_data_alvo",
+        "estoque_disponivel",
+        "entradas_unidades",
+    }
     return [coluna for coluna in dados.columns if coluna not in excluir]
 
 

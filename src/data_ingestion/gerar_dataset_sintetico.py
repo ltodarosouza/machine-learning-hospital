@@ -38,6 +38,7 @@ sys.path.append(str(Path(__file__).resolve().parents[2]))
 from src.utils.config import PERIODO_INICIO, PERIODO_FIM
 
 SEED = 42
+ATENDIMENTOS_BASE_DIA = 95.0
 
 DIR_PROCESSED = Path(__file__).resolve().parents[2] / "data" / "processed"
 DIR_EXTERNAL = Path(__file__).resolve().parents[2] / "data" / "external"
@@ -230,21 +231,21 @@ def fator_surto(estados: np.ndarray) -> np.ndarray:
 # ---------------------------------------------------------------------------
 
 
-def gerar_consumo_diario(externos: pd.DataFrame, medicamentos_ref: pd.DataFrame, rng: np.random.Generator) -> pd.DataFrame:
-    dias = externos["data"]
-    n_dias = len(dias)
+def _calcular_fatores_contexto(externos: pd.DataFrame) -> dict[str, np.ndarray]:
+    """Calcula os fatores externos e os surtos compartilhados pelo gerador.
 
-    dia_semana = dias.dt.dayofweek  # 0=segunda ... 6=domingo
-    # ER tem mais procura no fim de semana (clínicas fechadas) e leve alta na segunda (represamento)
+    Este contexto é usado tanto para gerar os atendimentos quanto para
+    definir a propensão por categoria de medicamento. Ele não depende do
+    consumo, mantendo a ordem causal do processo sintético.
+    """
+    n_dias = len(externos)
+    dias = externos["data"]
+
+    dia_semana = dias.dt.dayofweek
     fator_dia_semana = 1.0 + 0.10 * dia_semana.isin([5, 6]).astype(float) + 0.05 * (dia_semana == 0).astype(float)
     fator_feriado = 1.0 + 0.15 * externos["feriado"].astype(float)
+    fator_tendencia = 1.0 + 0.08 * np.linspace(0, 1, n_dias)
 
-    # Tendência leve de crescimento ao longo do período (mais atendimentos no fim do período)
-    progresso = np.linspace(0, 1, n_dias)
-    fator_tendencia = 1.0 + 0.08 * progresso
-
-    # Normaliza temperatura/chuva/dengue em torno da própria mediana do período,
-    # para os efeitos serem relativos (não dependerem de conhecer a escala exata).
     temp_norm = (externos["temperatura_media"].median() - externos["temperatura_media"]) / externos["temperatura_media"].std()
     chuva_norm = (externos["chuva_mm"] - externos["chuva_mm"].median()) / (externos["chuva_mm"].std() + 1e-6)
     dengue_norm = (externos["casos_dengue_regiao"] - externos["casos_dengue_regiao"].median()) / (
@@ -254,25 +255,56 @@ def gerar_consumo_diario(externos: pd.DataFrame, medicamentos_ref: pd.DataFrame,
     fator_clima = 1.0 + 0.12 * temp_norm.clip(-2, 2) + 0.05 * chuva_norm.clip(-2, 2)
     fator_dengue = 1.0 + 0.15 * dengue_norm.clip(-2, 3)
 
-    # Estados latentes persistentes de surto (Issue #58) — um processo por
-    # categoria sensível, compartilhado entre os medicamentos daquela
-    # categoria (um surto respiratório de verdade afeta vários medicamentos
-    # ao mesmo tempo, não um só). Seeds próprias, fora da faixa usada pelos
-    # medicamentos individuais (SEED + i) e pelas demais etapas do gerador.
     estado_surto_respiratorio = gerar_estado_surto(n_dias, np.random.default_rng(SEED + 9000))
     estado_surto_dengue = gerar_estado_surto(n_dias, np.random.default_rng(SEED + 9001))
-    fator_surto_respiratorio = fator_surto(estado_surto_respiratorio)
-    fator_surto_dengue = fator_surto(estado_surto_dengue)
+
+    return {
+        "fator_dia_semana": fator_dia_semana.to_numpy(),
+        "fator_feriado": fator_feriado.to_numpy(),
+        "fator_tendencia": fator_tendencia,
+        "fator_clima": fator_clima.to_numpy(),
+        "fator_dengue": fator_dengue.to_numpy(),
+        "fator_surto_respiratorio": fator_surto(estado_surto_respiratorio),
+        "fator_surto_dengue": fator_surto(estado_surto_dengue),
+    }
+
+
+def gerar_consumo_diario(
+    externos: pd.DataFrame,
+    medicamentos_ref: pd.DataFrame,
+    rng: np.random.Generator,
+    sinais_internos: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    """Gera o consumo depois que os atendimentos do PS já foram observados.
+
+    ``sinais_internos`` é opcional apenas para manter compatibilidade com
+    chamadas antigas: quando omitido, ele é gerado primeiro a partir dos
+    dados externos, nunca a partir do consumo.
+    """
+    dias = externos["data"]
+    n_dias = len(dias)
+
+    if sinais_internos is None:
+        sinais_internos = gerar_sinais_internos(externos, rng)
+    sinais_por_data = sinais_internos.copy()
+    sinais_por_data["data"] = pd.to_datetime(sinais_por_data["data"])
+    sinais_por_data = sinais_por_data.set_index("data").reindex(pd.DatetimeIndex(dias))
+    if sinais_por_data["atendimentos_ps"].isna().any():
+        raise ValueError("sinais_internos não cobre todas as datas dos dados externos.")
+    fator_atendimentos = sinais_por_data["atendimentos_ps"].to_numpy() / ATENDIMENTOS_BASE_DIA
+    fatores = _calcular_fatores_contexto(externos)
 
     linhas = []
     for i, item in medicamentos_ref.iterrows():
         rng_item = np.random.default_rng(SEED + i)  # série reprodutível e independente por medicamento
 
-        fator = fator_dia_semana.to_numpy() * fator_feriado.to_numpy() * fator_tendencia
+        # O volume geral vem dos atendimentos gerados antes do consumo. Os
+        # fatores abaixo representam a composição específica de cada categoria.
+        fator = fator_atendimentos.copy()
         if item["_sensivel_clima"]:
-            fator = fator * fator_clima.to_numpy() * fator_surto_respiratorio
+            fator = fator * fatores["fator_clima"] * fatores["fator_surto_respiratorio"]
         if item["_sensivel_dengue"]:
-            fator = fator * fator_dengue.to_numpy() * fator_surto_dengue
+            fator = fator * fatores["fator_dengue"] * fatores["fator_surto_dengue"]
 
         media = item["_consumo_base_dia"] * fator
         # Ruído multiplicativo com memória (Issue #61) + Poisson para manter
@@ -302,16 +334,26 @@ def gerar_consumo_diario(externos: pd.DataFrame, medicamentos_ref: pd.DataFrame,
 # ---------------------------------------------------------------------------
 
 
-def simular_estoque(consumo_diario: pd.DataFrame, medicamentos_ref: pd.DataFrame, rng: np.random.Generator) -> pd.DataFrame:
+def simular_estoque(
+    consumo_diario: pd.DataFrame,
+    medicamentos_ref: pd.DataFrame,
+    rng: np.random.Generator,
+) -> pd.DataFrame:
+    """Simula saldo e torna auditavel a censura causada por uma ruptura.
+
+    ``consumo_unidades`` e a demanda latente gerada antes da politica de
+    estoque: e o alvo que o modelo deve prever. A dispensacao, por outro lado,
+    nunca pode ultrapassar o saldo disponivel apos as entradas do dia.
+    """
     resultado = []
     for i, item in medicamentos_ref.iterrows():
         rng_item = np.random.default_rng(SEED + 1000 + i)
         serie = consumo_diario[consumo_diario["medicamento_id"] == item["medicamento_id"]].sort_values("data")
-        consumo = serie["consumo_unidades"].to_numpy()
-        n = len(consumo)
+        demanda = serie["consumo_unidades"].to_numpy()
+        n = len(demanda)
 
         prazo = int(item["prazo_entrega_dias"])
-        media_movel_consumo = pd.Series(consumo).rolling(14, min_periods=1).mean().to_numpy()
+        media_movel_consumo = pd.Series(demanda).rolling(14, min_periods=1).mean().to_numpy()
 
         # Ponto de pedido "ingênuo": reordena quando o estoque cobre menos que o
         # prazo de entrega + 3 dias de folga, sem estoque de segurança calculado
@@ -321,6 +363,8 @@ def simular_estoque(consumo_diario: pd.DataFrame, medicamentos_ref: pd.DataFrame
 
         estoque = np.zeros(n)
         entradas = np.zeros(n)
+        dispensacao = np.zeros(n)
+        demanda_nao_atendida = np.zeros(n)
         pedidos_em_transito = []  # lista de (dia_chegada, quantidade)
 
         estoque_atual = media_movel_consumo[0] * (prazo + 10) if n > 0 else 0.0
@@ -330,9 +374,9 @@ def simular_estoque(consumo_diario: pd.DataFrame, medicamentos_ref: pd.DataFrame
             entradas[t] = chegando_hoje
             estoque_atual += chegando_hoje
 
-            estoque_atual -= consumo[t]
-            # Estoque não pode ser negativo (ruptura = fica em 0, demanda não atendida é perdida)
-            estoque_atual = max(estoque_atual, 0.0)
+            dispensacao[t] = min(demanda[t], estoque_atual)
+            demanda_nao_atendida[t] = demanda[t] - dispensacao[t]
+            estoque_atual -= dispensacao[t]
             estoque[t] = estoque_atual
 
             if estoque_atual < ponto_pedido[t] and not any(True for _ in pedidos_em_transito):
@@ -347,7 +391,9 @@ def simular_estoque(consumo_diario: pd.DataFrame, medicamentos_ref: pd.DataFrame
                 {
                     "data": serie["data"].to_numpy(),
                     "medicamento_id": item["medicamento_id"],
-                    "consumo_unidades": consumo,
+                    "consumo_unidades": demanda,
+                    "dispensacao_unidades": dispensacao,
+                    "demanda_nao_atendida": demanda_nao_atendida,
                     "entradas_unidades": entradas,
                     "estoque_disponivel": estoque,
                 }
@@ -362,25 +408,28 @@ def simular_estoque(consumo_diario: pd.DataFrame, medicamentos_ref: pd.DataFrame
 # ---------------------------------------------------------------------------
 
 
-def gerar_sinais_internos(externos: pd.DataFrame, consumo_diario: pd.DataFrame, rng: np.random.Generator) -> pd.DataFrame:
-    consumo_total_dia = consumo_diario.groupby("data")["consumo_unidades"].sum().reset_index()
-    consumo_total_dia["data"] = pd.to_datetime(consumo_total_dia["data"])
-    consumo_total_dia = consumo_total_dia.sort_values("data")
-
-    # Atendimentos correlacionados com o consumo total agregado (mais atendimento -> mais consumo),
-    # escalado para uma faixa plausível de PS de porte médio, com ruído próprio.
-    base = 90 + 25 * (
-        (consumo_total_dia["consumo_unidades"] - consumo_total_dia["consumo_unidades"].mean())
-        / consumo_total_dia["consumo_unidades"].std()
+def gerar_sinais_internos(externos: pd.DataFrame, rng: np.random.Generator) -> pd.DataFrame:
+    """Gera atendimentos e ocupação a partir de sinais disponíveis antes do consumo."""
+    fatores = _calcular_fatores_contexto(externos)
+    fator_surto_atendimentos = (
+        0.65 * fatores["fator_surto_respiratorio"] + 0.35 * fatores["fator_surto_dengue"]
     )
-    ruido = rng.normal(0, 6, size=len(base))
-    atendimentos = np.clip(base + ruido, 30, None).round().astype(int)
+    fator_externo = (
+        fatores["fator_dia_semana"]
+        * fatores["fator_feriado"]
+        * fatores["fator_tendencia"]
+        * (1.0 + 0.08 * (fatores["fator_clima"] - 1.0))
+        * (1.0 + 0.08 * (fatores["fator_dengue"] - 1.0))
+    )
+    media_atendimentos = ATENDIMENTOS_BASE_DIA * fator_externo * fator_surto_atendimentos
+    ruido = rng.normal(0, 5, size=len(externos))
+    atendimentos = np.clip(media_atendimentos + ruido, 30, None).round().astype(int)
 
-    ocupacao = np.clip(45 + 0.35 * (atendimentos - atendimentos.mean()) + rng.normal(0, 4, size=len(base)), 20, 100)
+    ocupacao = np.clip(45 + 0.35 * (atendimentos - atendimentos.mean()) + rng.normal(0, 4, size=len(atendimentos)), 20, 100)
 
     return pd.DataFrame(
         {
-            "data": consumo_total_dia["data"].dt.date.astype(str),
+            "data": externos["data"].dt.date.astype(str),
             "atendimentos_ps": atendimentos,
             "ocupacao_leitos_pct": ocupacao.round(1),
         }
@@ -539,9 +588,29 @@ def validar_consumo_diario(df: pd.DataFrame, medicamentos_ref: pd.DataFrame) -> 
 
     if (df["consumo_unidades"] < 0).any():
         raise ValueError("consumo_unidades negativo encontrado.")
+    if (df["dispensacao_unidades"] < 0).any():
+        raise ValueError("dispensacao_unidades negativa encontrada.")
+    if (df["demanda_nao_atendida"] < 0).any():
+        raise ValueError("demanda_nao_atendida negativa encontrada.")
+    if not np.allclose(
+        df["consumo_unidades"],
+        df["dispensacao_unidades"] + df["demanda_nao_atendida"],
+    ):
+        raise ValueError(
+            "consumo_unidades deve ser igual a dispensacao_unidades mais demanda_nao_atendida."
+        )
+    if (df["dispensacao_unidades"] > df["consumo_unidades"]).any():
+        raise ValueError("dispensacao_unidades nao pode superar a demanda latente.")
     if (df["estoque_disponivel"] < 0).any():
         raise ValueError("estoque_disponivel negativo encontrado.")
-    if df[["consumo_unidades", "entradas_unidades", "estoque_disponivel"]].isna().any().any():
+    colunas_numericas = [
+        "consumo_unidades",
+        "dispensacao_unidades",
+        "demanda_nao_atendida",
+        "entradas_unidades",
+        "estoque_disponivel",
+    ]
+    if df[colunas_numericas].isna().any().any():
         raise ValueError("Valores nulos encontrados em consumo_diario.")
 
 
@@ -589,13 +658,23 @@ def main() -> None:
     medicamentos_ref = montar_medicamentos_ref()
     externos = carregar_externos()
 
-    consumo_bruto = gerar_consumo_diario(externos, medicamentos_ref, rng)
+    sinais_internos = gerar_sinais_internos(externos, rng)
+    consumo_bruto = gerar_consumo_diario(externos, medicamentos_ref, rng, sinais_internos)
     consumo_com_estoque = simular_estoque(consumo_bruto, medicamentos_ref, rng)
-    sinais_internos = gerar_sinais_internos(externos, consumo_bruto, rng)
 
     consumo_diario = consumo_com_estoque.merge(sinais_internos, on="data", how="left")
     consumo_diario = consumo_diario[
-        ["data", "medicamento_id", "consumo_unidades", "estoque_disponivel", "entradas_unidades", "ocupacao_leitos_pct", "atendimentos_ps"]
+        [
+            "data",
+            "medicamento_id",
+            "consumo_unidades",
+            "dispensacao_unidades",
+            "demanda_nao_atendida",
+            "estoque_disponivel",
+            "entradas_unidades",
+            "ocupacao_leitos_pct",
+            "atendimentos_ps",
+        ]
     ]
 
     lotes = gerar_lotes(consumo_com_estoque, medicamentos_ref, rng)
@@ -622,6 +701,10 @@ def main() -> None:
 
     total_rupturas = int((consumo_diario["estoque_disponivel"] == 0).sum())
     print(f"Dias-medicamento com estoque zerado (ruptura) no período: {total_rupturas}")
+    print(
+        "Unidades de demanda nao atendida no periodo: "
+        f"{consumo_diario['demanda_nao_atendida'].sum():.0f}"
+    )
 
 
 if __name__ == "__main__":
