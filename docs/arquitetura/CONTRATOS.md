@@ -176,8 +176,9 @@ Horizonte de previsão do MVP: **7 dias** (fechado na Issue #1 — ver seção 0
 
 ## 5. Contrato de entrada de `dashboard`
 
-- Consome diretamente a saída de `recommendation` (seção 4) + série histórica de `models` (seção 3) para gráficos.
-- Função do motor: `src/recommendation/motor_recomendacao.py::gerar_recomendacoes(previsoes, estoque_atual, estoque_seguranca, pedidos_pendentes) -> pd.DataFrame`.
+- Consome a saída de `recommendation` (seção 4) + série histórica de `models` (seção 3) para gráficos.
+- Para apresentar o resultado, o dashboard enriquece a saída do motor com `nome` e `categoria` de `medicamentos_ref.csv`. Esses dois campos pertencem ao cadastro, não à saída de `recommendation`.
+- Função do motor: `src/recommendation/motor_recomendacao.py::gerar_recomendacoes(previsoes, estoque_atual, estoque_seguranca, pedidos_pendentes, medicamentos_referencia, lotes) -> pd.DataFrame`.
 
 ## 6. Contrato de `evaluation`
 
@@ -198,3 +199,4 @@ Registrar aqui sempre que um contrato mudar depois de combinado, com data e quem
 | 2026-08-12 | Issues #3/#7 | Pipeline de dados completo: `data/processed/consumo_medicamentos.csv` (schema da seção 1, consolidado) pronto e commitado — Issues #8+ já podem consumir dado real (sintético) em vez de mock | features, models |
 | 2026-08-12 | Correção de normalização | Features externas passaram a usar estatísticas apenas de datas anteriores, eliminando vazamento temporal | features, models, evaluation |
 | 2026-08-12 | Issues #15/#24 | Definida a agregação da demanda prevista no horizonte e publicada a função base do motor de recomendação | recommendation, dashboard, evaluation |
+| 2026-08-12 | Issue #20 | Dashboard passou a executar o pipeline real; `nome` e `categoria` foram formalizados como enriquecimento de apresentação via cadastro | dashboard, recommendation |
