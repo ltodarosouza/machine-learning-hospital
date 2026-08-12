@@ -109,6 +109,22 @@ Formato de arquivo: CSV (trocar para parquet depois se performance for um proble
 - **Entrada:** schema da seção 1.
 - **Saída:** dataframe com colunas originais + features derivadas (ex.: médias móveis, lags, variáveis sazonais). Nomear features com prefixo claro (ex.: `feat_media_movel_7d`). Documentar aqui a lista final de features geradas.
 
+### Features de série temporal (Issue #8)
+
+Todas as features abaixo são calculadas separadamente por `medicamento_id`,
+ordenadas por `data`, e usam somente valores anteriores à data da linha. Por
+isso, as primeiras linhas de cada série têm `NaN` quando não há histórico
+suficiente. Esses valores serão tratados pela Issue #10.
+
+| Coluna | Definição | Racional |
+|---|---|---|
+| `feat_lag_1d` | Consumo de 1 dia antes | Captura a demanda mais recente. |
+| `feat_lag_7d` | Consumo de 7 dias antes | Captura padrão semanal. |
+| `feat_lag_14d` | Consumo de 14 dias antes | Captura recorrência de duas semanas. |
+| `feat_media_movel_7d` | Média dos 7 dias anteriores | Suaviza oscilações recentes. |
+| `feat_media_movel_14d` | Média dos 14 dias anteriores | Representa o nível de demanda de curto/médio prazo. |
+| `feat_media_movel_30d` | Média dos 30 dias anteriores | Representa a tendência de demanda mais estável. |
+
 ## 3. Contrato de entrada/saída de `models`
 
 - **Entrada:** saída de `features`, filtrada por `medicamento_id`.
@@ -160,3 +176,4 @@ Registrar aqui sempre que um contrato mudar depois de combinado, com data e quem
 | Data | Quem | O que mudou | Módulos afetados |
 |---|---|---|---|
 | 2026-08-12 | Kickoff (Issue #1) | Fechado escopo do MVP (seção 0) e schema completo em 5 tabelas (seção 1), horizonte de previsão travado em 7 dias | Todos |
+| 2026-08-12 | Issue #8 | Documentadas as features temporais (lags e médias móveis) e a manutenção de `NaN` sem histórico suficiente | Features, models, evaluation |
