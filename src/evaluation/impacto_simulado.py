@@ -123,6 +123,54 @@ def gerar_relatorio_markdown(comparacao: pd.DataFrame, inicio: str, fim: str) ->
     return "\n".join(linhas) + "\n"
 
 
+def simular_periodo(
+    dados: pd.DataFrame,
+    estoque: pd.DataFrame,
+    referencia: pd.DataFrame,
+    inicio: str,
+    fim: str,
+) -> pd.DataFrame:
+    """Executa a comparação temporal e a simulação de estoque para um período."""
+    baseline = avaliar_baseline_periodo(dados, inicio, fim)
+    modelo = avaliar_modelo_periodo(dados, inicio, fim)
+    corte = pd.Timestamp(inicio) - pd.Timedelta(days=1)
+    inicial = estoque[estoque["data"] <= corte].sort_values("data").groupby("medicamento_id").tail(1)
+    return comparar_cenarios(
+        simular_impacto(baseline, dados, referencia, inicial),
+        simular_impacto(modelo, dados, referencia, inicial),
+    )
+
+
+def gerar_relatorio_trimestral(resultados_mensais: dict[str, pd.DataFrame]) -> str:
+    """Gera visão mensal e total para evitar conclusões de um mês atípico."""
+    linhas = [
+        "# Impacto simulado: baseline vs. modelo de ML (Issue #17)",
+        "",
+        "Período simulado: outubro a dezembro de 2025, com validação temporal por janelas de 7 dias.",
+        "",
+        "> **Limitação:** simulação sobre dados sintéticos, não piloto hospitalar. Compras emergenciais usam o preço unitário de referência. Vencimentos ainda não são estimados porque a simulação não movimenta lotes individualmente.",
+        "",
+        "## Resultado por mês",
+        "",
+        "| Mês | Métrica | Baseline | Modelo ML | Redução | Redução (%) |",
+        "|---|---|---:|---:|---:|---:|",
+    ]
+    for mes, comparacao in resultados_mensais.items():
+        for _, linha in comparacao.iterrows():
+            percentual = "—" if pd.isna(linha["reducao_pct"]) else f"{linha['reducao_pct']:.1f}%"
+            linhas.append(f"| {mes} | {linha['metrica']} | {linha['baseline']:.2f} | {linha['modelo_ml']:.2f} | {linha['reducao']:.2f} | {percentual} |")
+
+    consolidado = pd.concat(resultados_mensais.values()).groupby("metrica")[["baseline", "modelo_ml"]].sum().reset_index()
+    consolidado["reducao"] = consolidado["baseline"] - consolidado["modelo_ml"]
+    consolidado["reducao_pct"] = consolidado["reducao"].div(consolidado["baseline"].replace(0, pd.NA)) * 100
+    linhas += ["", "## Consolidado (3 meses)", "", "| Métrica | Baseline | Modelo ML | Redução | Redução (%) |", "|---|---:|---:|---:|---:|"]
+    for _, linha in consolidado.iterrows():
+        percentual = "—" if pd.isna(linha["reducao_pct"]) else f"{linha['reducao_pct']:.1f}%"
+        linhas.append(f"| {linha['metrica']} | {linha['baseline']:.2f} | {linha['modelo_ml']:.2f} | {linha['reducao']:.2f} | {percentual} |")
+    linhas += ["", "## Leitura", "", "No recorte de três meses, o modelo não demonstra ganho operacional consistente frente ao baseline. A comparação deve orientar novos ajustes e validação antes de qualquer uso real."]
+    return "\n".join(linhas) + "\n"
+
+
 def main() -> None:
     """Executa a comparação para as últimas quatro janelas de teste do MVP."""
     from pathlib import Path
@@ -131,17 +179,12 @@ def main() -> None:
     dados = pd.read_csv(base / "data" / "processed" / "consumo_medicamentos.csv")
     estoque = pd.read_csv(base / "data" / "processed" / "consumo_diario.csv")
     referencia = pd.read_csv(base / "data" / "processed" / "medicamentos_ref.csv")
-    ultima_data = pd.to_datetime(dados["data"]).max()
-    inicio = (ultima_data - pd.Timedelta(days=27)).date().isoformat()
-    fim = ultima_data.date().isoformat()
-    baseline = avaliar_baseline_periodo(dados, inicio, fim)
-    modelo = avaliar_modelo_periodo(dados, inicio, fim)
-    corte = pd.Timestamp(inicio) - pd.Timedelta(days=1)
     estoque["data"] = pd.to_datetime(estoque["data"])
-    inicial = estoque[estoque["data"] <= corte].sort_values("data").groupby("medicamento_id").tail(1)
-    impacto_baseline = simular_impacto(baseline, dados, referencia, inicial)
-    impacto_modelo = simular_impacto(modelo, dados, referencia, inicial)
-    relatorio = gerar_relatorio_markdown(comparar_cenarios(impacto_baseline, impacto_modelo), inicio, fim)
+    resultados_mensais = {
+        mes: simular_periodo(dados, estoque, referencia, f"2025-{mes}-01", (pd.Timestamp(f"2025-{mes}-01") + pd.offsets.MonthEnd(0)).date().isoformat())
+        for mes in ("10", "11", "12")
+    }
+    relatorio = gerar_relatorio_trimestral(resultados_mensais)
     destino = base / "docs" / "arquitetura" / "RESULTADOS_IMPACTO_SIMULADO.md"
     destino.write_text(relatorio, encoding="utf-8")
     print(relatorio)
