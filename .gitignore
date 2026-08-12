@@ -29,6 +29,16 @@ data/external/*
 !data/external/clima.csv
 !data/external/epidemiologia.csv
 
+# Dataset sintético (Issue #3): não é dado real/sensível de nenhum hospital,
+# é 100% gerado por código com seed fixa (reprodutível), pequeno o suficiente
+# para commitar, e é a base que todo o resto do projeto (features, modelo,
+# recomendação, dashboard) precisa para funcionar sem cada pessoa ter que
+# rodar o gerador antes de começar.
+!data/processed/consumo_diario.csv
+!data/processed/medicamentos_ref.csv
+!data/processed/lotes.csv
+!data/processed/pedidos_pendentes.csv
+
 # Modelos treinados (pesados, não versionar binário)
 *.pkl
 *.joblib

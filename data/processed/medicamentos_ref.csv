@@ -1,0 +1,21 @@
+medicamento_id,nome,categoria,prazo_entrega_dias,preco_unitario_reais
+paracetamol,Paracetamol,Dor/febre,5,0.15
+dipirona,Dipirona,Dor/febre,5,0.2
+ibuprofeno,Ibuprofeno,Dor/febre,5,0.3
+soro_fisiologico,"Soro Fisiológico 0,9%",Suporte/hidratação,6,4.5
+soro_ringer,Soro Ringer Lactato,Suporte/hidratação,6,5.0
+salbutamol,Salbutamol (spray/nebulização),Respiratório,7,18.0
+predinisolona,Predinisolona,Respiratório,7,0.9
+hidrocortisona_inj,Hidrocortisona injetável,Respiratório/alergia,7,6.0
+omeprazol_inj,Omeprazol injetável,Gastro,6,3.0
+ondansetrona,Ondansetrona,Gastro,6,4.5
+metoclopramida,Metoclopramida,Gastro,6,0.6
+amoxicilina,Amoxicilina,Antibiótico,7,0.8
+azitromicina,Azitromicina,Antibiótico,7,3.5
+ceftriaxona_inj,Ceftriaxona injetável,Antibiótico,7,12.0
+diclofenaco,Diclofenaco,Dor/inflamação,5,0.4
+tramadol,Tramadol,Dor,8,1.5
+loratadina,Loratadina,Alergia,6,0.35
+soro_antitermico_infantil,Soro Antitérmico Infantil,Dor/febre (pediátrico),6,8.0
+adrenalina_inj,Adrenalina injetável,Emergência/controlado,12,8.5
+diazepam,Diazepam,Emergência/controlado,12,1.2
