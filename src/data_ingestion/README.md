@@ -37,6 +37,18 @@ Saída (todas em `data/processed/`, commitadas — ver `.gitignore`, dado sinté
 
 **Fora do escopo desta issue** (fica para depois, se o time decidir): re-rodar a comparação de algoritmos/tuning do modelo (`scripts/comparar_algoritmos_modelo.py`, `scripts/tuning_xgboost.py`) com o dataset regenerado, para medir se isso de fato aumenta a margem do ML sobre o baseline.
 
+**Classes de persistência por medicamento (Issue #61):** o ruído de curto prazo era o mesmo mecanismo (log-normal independente a cada dia) para os 20 medicamentos igualmente, mesmo eles tendo dinâmicas bem diferentes na prática. Agora cada medicamento tem um "perfil de persistência" (`_perfil_persistencia`, derivado da `categoria` em `montar_medicamentos_ref`, não salvo no CSV final — é um detalhe de geração, não um dado do domínio):
+
+| Perfil | Categorias | `phi` (memória) | Exemplo |
+|---|---|---|---|
+| `continuo` | Dor/febre, Suporte/hidratação | 0.85 (alta) | `paracetamol`, `soro_fisiologico` |
+| `intermitente` | todas as demais (padrão) | 0.55 (média) | `salbutamol`, `amoxicilina` |
+| `erratico` | Emergência/controlado | 0.05 (quase nenhuma) | `adrenalina_inj`, `diazepam` |
+
+`gerar_ruido_ar1` substitui o sorteio log-normal i.i.d. por um processo AR(1) em escala log (`ruído_t = φ·ruído_(t-1) + inovação_t`, depois exponenciado): `φ` controla a memória, e a variância da inovação é calibrada por perfil (`sigma_estacionario`) para manter a mesma amplitude de variação de antes (0.12) em regime permanente — a mudança é só de memória, não de volatilidade total. Verificado empiricamente (e coberto por teste) que a autocorrelação de lag 1 do ruído gerado bate com `φ` dentro de ~0.01, e que `continuo > intermitente > erratico`, como esperado.
+
+Perfil "erratico" (`φ=0.05`) é, de propósito, quase equivalente ao comportamento i.i.d. anterior — itens de emergência/baixíssimo volume não deveriam ganhar uma estrutura temporal artificial que não faz sentido para eles.
+
 **Casos propositalmente extremos para a demonstração:** `ceftriaxona_inj` e `hidrocortisona_inj` concentram a maior parte do seu estoque **real** (não inventado) num único lote de validade curta (`gerar_lotes`, calculada a partir do próprio consumo-base do medicamento, não um número fixo) — o suficiente para o motor de recomendação classificar risco de vencimento alto de verdade, sem quebrar a invariante `soma(lotes) == estoque_disponivel` (contrato seção 1.4, Issue #53). `adrenalina_inj` tem estoque cronicamente baixo frente ao consumo (risco de falta, é o item com mais dias de ruptura no período) — esse já surge naturalmente da simulação, sem precisar forçar nada.
 
 ### `ingestao_clima.py` (Issue #4) — pronto
