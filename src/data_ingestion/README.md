@@ -18,7 +18,17 @@ Feriados cobertos: nacionais (ex. Confraternização Universal, Tiradentes, Nata
 
 ### `gerar_dataset_sintetico.py` (Issue #3) — pendente
 
-### `ingestao_clima.py` (Issue #4) — pendente
+### `ingestao_clima.py` (Issue #4) — pronto
+
+Busca temperatura média e chuva diárias na API pública da Open-Meteo (dados de reanálise ERA5), para as coordenadas de João Pessoa.
+
+```bash
+python src/data_ingestion/ingestao_clima.py
+```
+
+Saída: `data/external/clima.csv` — colunas `data`, `temperatura_media` (°C), `chuva_mm`. Commitado no repositório pelo mesmo motivo do calendário (dado público, pequeno, reprodutível).
+
+**Nota importante:** o plano original (`FONTES_DADOS.md`) era usar o INMET. Na prática, o portal do INMET não respondeu a chamadas automatizadas no ambiente em que essa task foi feita, então a fonte foi trocada para Open-Meteo — mesmo tipo de dado (temperatura/chuva reais), mais fácil de automatizar. Detalhes e como trocar de volta para INMET se o time preferir: ver `docs/arquitetura/FONTES_DADOS.md` seção 1.
 
 ### `ingestao_epidemiologia.py` (Issue #5) — pendente
 

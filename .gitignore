@@ -24,8 +24,9 @@ data/external/*
 *.xlsx
 *.parquet
 !data/**/sample_*.csv
-# calendario.csv é dado público, pequeno e 100% reprodutível (biblioteca `holidays`) — vale commitar
+# calendario.csv e clima.csv são dados públicos, pequenos e 100% reprodutíveis — vale commitar
 !data/external/calendario.csv
+!data/external/clima.csv
 
 # Modelos treinados (pesados, não versionar binário)
 *.pkl

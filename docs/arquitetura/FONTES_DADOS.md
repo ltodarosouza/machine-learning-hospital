@@ -2,13 +2,14 @@
 
 Região de referência do MVP: **João Pessoa – PB** (ver escopo completo em [CONTRATOS.md](CONTRATOS.md) seção 0). O hospital do projeto é fictício, mas os dados climáticos e epidemiológicos usados para calibrar e enriquecer o dataset sintético vêm de fontes públicas reais dessa cidade — isso é o que dá credibilidade ao MVP sem precisarmos de acesso a um sistema hospitalar real.
 
-## 1. Clima — INMET
+## 1. Clima — Open-Meteo (trocado de INMET na Issue #4)
 
 - **O quê:** temperatura média diária e precipitação (chuva) diária.
-- **Fonte:** Instituto Nacional de Meteorologia (INMET), portal de dados históricos: https://portal.inmet.gov.br/dadoshistoricos (download de CSV por estação e ano) ou API pública do INMET (https://apitempo.inmet.gov.br).
-- **Formato de acesso:** CSV por estação/ano (mais simples e estável para o MVP) ou chamadas de API.
-- **Pendente de confirmação por quem for implementar a Issue #4:** o código exato da estação meteorológica de João Pessoa (existe mais de uma estação na região — convencional e automática). Verificar no portal qual tem melhor cobertura para os 2 anos do período escolhido.
-- **Limitações conhecidas:** estações automáticas podem ter falhas pontuais de leitura — a Issue #4 já prevê tratamento de dados faltantes (interpolação/preenchimento).
+- **Fonte usada de fato:** Open-Meteo Historical Weather API (https://open-meteo.com/en/docs/historical-weather-api), dados de reanálise ERA5, reais e públicos, sem necessidade de cadastro/chave.
+- **Por que não INMET, como estava planejado aqui originalmente:** na implementação da Issue #4, o portal do INMET (`portal.inmet.gov.br` e `bdmep.inmet.gov.br`) não respondeu a chamadas automatizadas (timeout/conexão recusada) no ambiente usado, e mesmo quando acessível manualmente, o fluxo de download é um zip por ano com todas as estações do Brasil — não trivial de automatizar. A Open-Meteo entrega o mesmo tipo de dado, já filtrado por coordenada geográfica, via uma chamada HTTP simples, 100% reprodutível. Se alguém do time tiver acesso ao INMET funcionando e preferir usá-lo (dado "oficial" pode pesar melhor na banca), a troca fica isolada em `src/data_ingestion/ingestao_clima.py::buscar_clima_openmeteo` — o contrato de saída (`CONTRATOS.md` seção 1.2) não muda.
+- **Formato de acesso:** chamada HTTP GET com latitude/longitude/intervalo de datas, retorna JSON.
+- **Coordenadas usadas:** lat -7.115, lon -34.845 (João Pessoa), definidas em `src/utils/config.py`.
+- **Limitações conhecidas:** é dado de reanálise (modelo climático global recalibrado com observações), não leitura direta de uma estação local — pequenas diferenças frente ao que uma estação específica de João Pessoa mediria são esperadas, mas dentro da margem aceitável para o MVP.
 
 ## 2. Epidemiologia — InfoDengue
 
@@ -30,7 +31,7 @@ Região de referência do MVP: **João Pessoa – PB** (ver escopo completo em [
 
 | Fonte | Uso no MVP | Prioridade |
 |---|---|---|
-| INMET (clima) | Sim | Alta |
+| ~~INMET~~ → Open-Meteo (clima) | Sim (trocado na Issue #4, ver seção 1) | Alta |
 | InfoDengue (epidemiologia) | Sim | Alta |
 | `holidays` (feriados) | Sim | Alta |
 | DATASUS/OpenDataSUS | Não no MVP (avaliar depois) | Baixa |
