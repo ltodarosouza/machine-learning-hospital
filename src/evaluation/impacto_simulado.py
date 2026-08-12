@@ -18,6 +18,7 @@ COLUNAS_PREVISAO = {"medicamento_id", "data_previsao", "demanda_prevista"}
 COLUNAS_REAL = {"medicamento_id", "data", "consumo_unidades"}
 COLUNAS_REFERENCIA = {"medicamento_id", "prazo_entrega_dias", "preco_unitario_reais"}
 COLUNAS_ESTOQUE = {"medicamento_id", "estoque_disponivel"}
+COLUNAS_LOTES = {"medicamento_id", "quantidade_atual", "data_validade"}
 
 
 def simular_impacto(
@@ -25,6 +26,7 @@ def simular_impacto(
     consumo_real: pd.DataFrame,
     medicamentos_ref: pd.DataFrame,
     estoque_inicial: pd.DataFrame,
+    lotes: pd.DataFrame | None = None,
     fator_seguranca: float = 0.2,
 ) -> pd.DataFrame:
     """Simula rupturas, compras emergenciais e custo por medicamento.
@@ -38,6 +40,8 @@ def simular_impacto(
     _validar(consumo_real, COLUNAS_REAL, "consumo_real")
     _validar(medicamentos_ref, COLUNAS_REFERENCIA, "medicamentos_ref")
     _validar(estoque_inicial, COLUNAS_ESTOQUE, "estoque_inicial")
+    if lotes is not None:
+        _validar(lotes, COLUNAS_LOTES, "lotes")
     if fator_seguranca < 0:
         raise ValueError("fator_seguranca deve ser não negativo.")
 
@@ -49,6 +53,9 @@ def simular_impacto(
     real["consumo_unidades"] = pd.to_numeric(real["consumo_unidades"])
     referencia = medicamentos_ref[list(COLUNAS_REFERENCIA)].copy()
     inicial = estoque_inicial[list(COLUNAS_ESTOQUE)].copy()
+    lotes = pd.DataFrame(columns=sorted(COLUNAS_LOTES)) if lotes is None else lotes[list(COLUNAS_LOTES)].copy()
+    if not lotes.empty:
+        lotes["data_validade"] = pd.to_datetime(lotes["data_validade"])
 
     dados = real.merge(previsao, left_on=["medicamento_id", "data"], right_on=["medicamento_id", "data_previsao"], how="inner")
     dados = dados.merge(referencia, on="medicamento_id", how="inner").merge(inicial, on="medicamento_id", how="inner")
@@ -60,13 +67,29 @@ def simular_impacto(
         serie = serie.sort_values("data")
         prazo = int(serie["prazo_entrega_dias"].iloc[0])
         preco = float(serie["preco_unitario_reais"].iloc[0])
-        estoque = float(serie["estoque_disponivel"].iloc[0])
+        estoque_inicial_item = float(serie["estoque_disponivel"].iloc[0])
+        lotes_item = lotes[lotes["medicamento_id"] == medicamento].copy()
+        if lotes_item.empty:
+            estoque_lotes = [(pd.Timestamp.max, estoque_inicial_item)]
+        else:
+            escala = estoque_inicial_item / lotes_item["quantidade_atual"].sum()
+            estoque_lotes = list(zip(lotes_item["data_validade"], lotes_item["quantidade_atual"] * escala))
         chegadas: dict[pd.Timestamp, float] = {}
-        rupturas = emergenciais = custo_emergencial = 0.0
+        rupturas = emergenciais = custo_emergencial = vencidas = 0.0
         episodios = 0
         for _, dia in serie.iterrows():
             data = dia["data"]
-            estoque += chegadas.pop(data, 0.0)
+            chegada = chegadas.pop(data, 0.0)
+            if chegada:
+                estoque_lotes.append((data + pd.Timedelta(days=365), chegada))
+            validos = []
+            for validade, quantidade in estoque_lotes:
+                if validade < data:
+                    vencidas += quantidade
+                else:
+                    validos.append((validade, quantidade))
+            estoque_lotes = validos
+            estoque = sum(quantidade for _, quantidade in estoque_lotes)
             demanda_lead_time = max(float(dia["demanda_prevista"]), 0.0) * max(prazo, 1)
             pedido = max(demanda_lead_time * (1 + fator_seguranca) - estoque - sum(chegadas.values()), 0.0)
             chegada = data + pd.Timedelta(days=prazo)
@@ -78,7 +101,14 @@ def simular_impacto(
                 rupturas += falta
                 emergenciais += falta
                 custo_emergencial += falta * preco
-            estoque = max(estoque - realizado, 0.0)
+            restante = realizado
+            atualizados = []
+            for validade, quantidade in sorted(estoque_lotes):
+                consumido = min(quantidade, restante)
+                restante -= consumido
+                if quantidade > consumido:
+                    atualizados.append((validade, quantidade - consumido))
+            estoque_lotes = atualizados
         resultados.append(
             {
                 "medicamento_id": medicamento,
@@ -86,7 +116,7 @@ def simular_impacto(
                 "unidades_em_ruptura": rupturas,
                 "compras_emergenciais_unidades": emergenciais,
                 "custo_compras_emergenciais_reais": custo_emergencial,
-                "unidades_vencidas": 0.0,
+                "unidades_vencidas": vencidas,
             }
         )
     return pd.DataFrame(resultados)
@@ -110,7 +140,7 @@ def gerar_relatorio_markdown(comparacao: pd.DataFrame, inicio: str, fim: str) ->
         "",
         f"Período simulado: {inicio} a {fim}.",
         "",
-        "> **Limitação:** esta é uma simulação sobre dados sintéticos, não um piloto hospitalar real. Compras emergenciais são valoradas pelo preço unitário de referência; vencimentos exigem movimentação de lotes e por isso ainda não são estimados neste cenário.",
+        "> **Limitação:** esta é uma simulação sobre dados sintéticos, não um piloto hospitalar real. Compras emergenciais são valoradas pelo preço unitário de referência. O consumo segue FEFO (primeiro a vencer, primeiro a sair); reposições simuladas recebem validade de 365 dias.",
         "",
         "| Métrica | Baseline | Modelo ML | Redução | Redução (%) |",
         "|---|---:|---:|---:|---:|",
@@ -127,6 +157,7 @@ def simular_periodo(
     dados: pd.DataFrame,
     estoque: pd.DataFrame,
     referencia: pd.DataFrame,
+    lotes: pd.DataFrame,
     inicio: str,
     fim: str,
 ) -> pd.DataFrame:
@@ -136,8 +167,8 @@ def simular_periodo(
     corte = pd.Timestamp(inicio) - pd.Timedelta(days=1)
     inicial = estoque[estoque["data"] <= corte].sort_values("data").groupby("medicamento_id").tail(1)
     return comparar_cenarios(
-        simular_impacto(baseline, dados, referencia, inicial),
-        simular_impacto(modelo, dados, referencia, inicial),
+        simular_impacto(baseline, dados, referencia, inicial, lotes),
+        simular_impacto(modelo, dados, referencia, inicial, lotes),
     )
 
 
@@ -180,11 +211,10 @@ def main() -> None:
     estoque = pd.read_csv(base / "data" / "processed" / "consumo_diario.csv")
     referencia = pd.read_csv(base / "data" / "processed" / "medicamentos_ref.csv")
     estoque["data"] = pd.to_datetime(estoque["data"])
-    resultados_mensais = {
-        mes: simular_periodo(dados, estoque, referencia, f"2025-{mes}-01", (pd.Timestamp(f"2025-{mes}-01") + pd.offsets.MonthEnd(0)).date().isoformat())
-        for mes in ("10", "11", "12")
-    }
-    relatorio = gerar_relatorio_trimestral(resultados_mensais)
+    lotes = pd.read_csv(base / "data" / "processed" / "lotes.csv")
+    inicio, fim = "2025-12-04", "2025-12-31"
+    comparacao = simular_periodo(dados, estoque, referencia, lotes, inicio, fim)
+    relatorio = gerar_relatorio_markdown(comparacao, inicio, fim)
     destino = base / "docs" / "arquitetura" / "RESULTADOS_IMPACTO_SIMULADO.md"
     destino.write_text(relatorio, encoding="utf-8")
     print(relatorio)

@@ -20,3 +20,12 @@ def test_previsao_melhor_reduz_compras_emergenciais():
 
     assert ruim.loc[0, "compras_emergenciais_unidades"] > boa.loc[0, "compras_emergenciais_unidades"]
     assert comparacao.loc["custo_compras_emergenciais_reais", "reducao"] > 0
+
+
+def test_contabiliza_lote_vencido_antes_do_consumo():
+    previsao, real, referencia, estoque = _entrada([0.0, 0.0, 0.0])
+    lotes = pd.DataFrame(
+        {"medicamento_id": ["med_a"], "quantidade_atual": [10.0], "data_validade": ["2025-12-31"]}
+    )
+    resultado = simular_impacto(previsao, real, referencia, estoque, lotes=lotes)
+    assert resultado.loc[0, "unidades_vencidas"] == 10.0
