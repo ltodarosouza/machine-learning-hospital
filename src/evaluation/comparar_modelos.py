@@ -18,13 +18,14 @@ jeito correto de simular "o que o modelo saberia prever, a cada
 momento, sem olhar o futuro".
 """
 
+import subprocess
 import sys
 from pathlib import Path
 
 import pandas as pd
 
 sys.path.append(str(Path(__file__).resolve().parents[2]))
-from src.models.baseline import gerar_previsoes_baseline_periodo
+from src.models.baseline import JANELA_PADRAO_DIAS, gerar_previsoes_baseline_periodo
 from src.models.modelo_demanda import avaliar_validacao_temporal
 from src.utils.config import HORIZONTE_PREVISAO_DIAS, PERIODO_FIM, PERIODO_INICIO
 
@@ -92,6 +93,17 @@ def calcular_metricas(comparacao: pd.DataFrame) -> pd.DataFrame:
     return pd.concat([por_medicamento, agregado[["metodo", "medicamento_id", "mae", "mape"]]], ignore_index=True)
 
 
+def _commit_atual() -> str:
+    """SHA curto do commit em que o relatório foi gerado — para rastreabilidade (Issue #54)."""
+    try:
+        resultado = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True, cwd=Path(__file__).resolve().parents[2], check=True
+        )
+        return resultado.stdout.strip()
+    except Exception:
+        return "desconhecido (git indisponível no ambiente)"
+
+
 def gerar_relatorio_markdown(metricas: pd.DataFrame, data_inicio_teste: str, data_fim_teste: str) -> str:
     agregado = metricas[metricas["medicamento_id"] == "TODOS"].set_index("metodo")
     mae_baseline = agregado.loc["baseline", "mae"]
@@ -135,6 +147,17 @@ def gerar_relatorio_markdown(metricas: pd.DataFrame, data_inicio_teste: str, dat
         mape_m = linha_medicamento.loc["modelo_ml", "mape"]
         venceu = "Sim" if mae_m < mae_b else "Não"
         linhas.append(f"| {medicamento_id} | {mae_b:.2f} | {mae_m:.2f} | {mape_b:.1f}% | {mape_m:.1f}% | {venceu} |")
+
+    linhas += [
+        "",
+        "## Reprodutibilidade",
+        "",
+        f"- **Commit:** `{_commit_atual()}`",
+        f"- **Período avaliado:** {data_inicio_teste} a {data_fim_teste} (dataset completo: {PERIODO_INICIO} a {PERIODO_FIM})",
+        f"- **Baseline:** média móvel de {JANELA_PADRAO_DIAS} dias (`src/models/baseline.py::prever_baseline`)",
+        "- **Modelo de ML:** XGBoost (`XGBRegressor`, `max_depth=5, learning_rate=0.1, n_estimators=500, subsample=0.8, colsample_bytree=0.8`, `random_state=42`) — ver `src/models/modelo_demanda.py::treinar_modelo`",
+        "- **Comando para regenerar este relatório:** `python src/evaluation/comparar_modelos.py`",
+    ]
 
     return "\n".join(linhas) + "\n"
 
