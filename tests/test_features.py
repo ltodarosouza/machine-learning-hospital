@@ -1,8 +1,27 @@
-"""Testes de integração do pipeline de features da Issue #10."""
+"""Testes de contrato e integração do pipeline de features."""
 
 import pandas as pd
+import pytest
 
 from src.features.pipeline import gerar_features
+
+
+FEATURES_ESPERADAS = {
+    "feat_lag_1d",
+    "feat_lag_7d",
+    "feat_lag_14d",
+    "feat_media_movel_7d",
+    "feat_media_movel_14d",
+    "feat_media_movel_30d",
+    "feat_dia_semana",
+    "feat_fim_de_semana",
+    "feat_mes",
+    "feat_feriado",
+    "feat_casos_dengue_lag7",
+    "feat_temperatura_media_norm",
+    "feat_chuva_mm_norm",
+    "feat_casos_dengue_regiao_norm",
+}
 
 
 def _dados_exemplo() -> pd.DataFrame:
@@ -35,22 +54,30 @@ def test_pipeline_trata_lacunas_outliers_e_remove_linhas_sem_historico() -> None
     assert saida["consumo_unidades"].max() == 10
 
 
-def test_saida_contem_features_dos_dois_modulos() -> None:
-    saida = gerar_features(_dados_exemplo())
+def test_saida_respeita_contrato_de_features() -> None:
+    entrada = _dados_exemplo()
 
-    esperadas = {
-        "feat_lag_1d",
-        "feat_lag_7d",
-        "feat_lag_14d",
-        "feat_media_movel_7d",
-        "feat_media_movel_14d",
-        "feat_media_movel_30d",
-        "feat_dia_semana",
-        "feat_feriado",
-        "feat_casos_dengue_lag7",
-        "feat_temperatura_media_norm",
-    }
-    assert esperadas.issubset(saida.columns)
+    saida = gerar_features(entrada)
+
+    assert set(entrada.columns).issubset(saida.columns)
+    assert FEATURES_ESPERADAS.issubset(saida.columns)
+    assert not saida[list(FEATURES_ESPERADAS)].isna().any().any()
+    assert pd.api.types.is_datetime64_any_dtype(saida["data"])
+    assert saida.equals(saida.sort_values(["medicamento_id", "data"]).reset_index(drop=True))
+
+
+def test_rejeita_medicamento_sem_historico_suficiente() -> None:
+    entrada = _dados_exemplo().iloc[:30]
+
+    with pytest.raises(ValueError, match="histórico suficiente"):
+        gerar_features(entrada)
+
+
+def test_rejeita_entrada_fora_do_contrato() -> None:
+    entrada = _dados_exemplo().drop(columns="casos_dengue_regiao")
+
+    with pytest.raises(ValueError, match="casos_dengue_regiao"):
+        gerar_features(entrada)
 
 
 def test_normalizacao_externa_nao_usa_estatisticas_de_datas_futuras() -> None:
