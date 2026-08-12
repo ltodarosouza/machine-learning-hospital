@@ -18,4 +18,24 @@ Funções principais:
 
 **Por que média móvel e não ponto de pedido fixo:** o Issue #11 original dava as duas opções. Média móvel foi escolhida por ser mais direta de comparar com o modelo de ML na mesma unidade (`demanda_prevista` em unidades/dia) — "ponto de pedido" é uma regra de decisão de compra, não uma previsão de demanda, e essa parte da lógica já está reservada para o motor de recomendação (Issues #14-16).
 
-## `modelo_demanda.py` (Issue #12) — pendente
+## `modelo_demanda.py` (Issue #12) — modelo de ML
+
+O modelo usa `RandomForestRegressor` porque o MVP já possui features de lags,
+médias móveis, calendário e variáveis externas; uma floresta captura relações
+não lineares entre elas sem pressupor uma forma fixa de sazonalidade. O
+medicamento é codificado como categoria e uma feature `horizonte_dias` permite
+previsão direta para cada um dos 7 dias, evitando alimentar uma previsão como
+entrada da próxima.
+
+O treino nunca embaralha a série. `avaliar_validacao_temporal` cria as features
+somente com o histórico até uma data de corte e compara as previsões com os 7
+dias seguintes. Os intervalos de saída usam o desvio dos resíduos de treino por
+medicamento; são faixas empíricas para comunicação no MVP, não intervalos de
+confiança formais.
+
+```bash
+python src/models/modelo_demanda.py
+```
+
+O comando executa uma validação temporal e salva o artefato reproduzível em
+`models_output/modelo_demanda.joblib`.
