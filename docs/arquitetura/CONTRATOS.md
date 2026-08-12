@@ -174,10 +174,31 @@ Horizonte de previsão do MVP: **7 dias** (fechado na Issue #1 — ver seção 0
 | `risco_vencimento` | enum(baixo/médio/alto) ou float | |
 | `justificativa` | string | Texto explicando a recomendação |
 
+### Classificação canônica de `risco_falta`
+
+O risco usa a cobertura do estoque disponível, sem somar pedidos pendentes:
+
+```
+demanda_diaria = demanda_prevista_no_horizonte / dias_do_horizonte
+cobertura_dias = estoque_disponivel / demanda_diaria
+```
+
+| Nível | Regra |
+|---|---|
+| `alto` | `cobertura_dias <= prazo_entrega_dias` |
+| `médio` | `prazo_entrega_dias < cobertura_dias <= 1,5 × prazo_entrega_dias` |
+| `baixo` | `cobertura_dias > 1,5 × prazo_entrega_dias` |
+
+Demanda diária zero sempre resulta em risco `baixo`. Quando o prazo não é
+fornecido, o fallback temporário é `alto` se há compra recomendada e `baixo`
+caso contrário; nesse cenário não há informação suficiente para classificar
+o nível intermediário.
+
 ## 5. Contrato de entrada de `dashboard`
 
-- Consome diretamente a saída de `recommendation` (seção 4) + série histórica de `models` (seção 3) para gráficos.
-- Função do motor: `src/recommendation/motor_recomendacao.py::gerar_recomendacoes(previsoes, estoque_atual, estoque_seguranca, pedidos_pendentes) -> pd.DataFrame`.
+- Consome a saída de `recommendation` (seção 4) + série histórica de `models` (seção 3) para gráficos.
+- Para apresentar o resultado, o dashboard enriquece a saída do motor com `nome` e `categoria` de `medicamentos_ref.csv`. Esses dois campos pertencem ao cadastro, não à saída de `recommendation`.
+- Função do motor: `src/recommendation/motor_recomendacao.py::gerar_recomendacoes(previsoes, estoque_atual, estoque_seguranca, pedidos_pendentes, medicamentos_referencia, lotes) -> pd.DataFrame`.
 
 ## 6. Contrato de `evaluation`
 
@@ -198,4 +219,6 @@ Registrar aqui sempre que um contrato mudar depois de combinado, com data e quem
 | 2026-08-12 | Issues #3/#7 | Pipeline de dados completo: `data/processed/consumo_medicamentos.csv` (schema da seção 1, consolidado) pronto e commitado — Issues #8+ já podem consumir dado real (sintético) em vez de mock | features, models |
 | 2026-08-12 | Correção de normalização | Features externas passaram a usar estatísticas apenas de datas anteriores, eliminando vazamento temporal | features, models, evaluation |
 | 2026-08-12 | Issues #15/#24 | Definida a agregação da demanda prevista no horizonte e publicada a função base do motor de recomendação | recommendation, dashboard, evaluation |
+| 2026-08-12 | Issue #20 | Dashboard passou a executar o pipeline real; `nome` e `categoria` foram formalizados como enriquecimento de apresentação via cadastro | dashboard, recommendation |
+| 2026-08-12 | Issue #50 | Consolidada a suíte canônica do motor e documentadas as fronteiras de `risco_falta` em três níveis | recommendation, dashboard |
 | 2026-08-12 | Melhoria pós-#13 | Período histórico estendido de 2 para 4 anos (2022-01-01 a 2025-12-31, 1.461 dias) — mais ciclos sazonais para o modelo aprender. Todos os dados externos/sintéticos regenerados (`data/external/*`, `data/processed/*`). Quem já tinha o dataset antigo localmente deve rodar `git pull` e conferir os arquivos em `data/` de novo | Todos |
