@@ -1,0 +1,53 @@
+"""Testes de integração do pipeline de features da Issue #10."""
+
+import pandas as pd
+
+from src.features.pipeline import gerar_features
+
+
+def _dados_exemplo() -> pd.DataFrame:
+    datas = pd.date_range("2025-01-01", periods=35, freq="D")
+    dados = pd.DataFrame(
+        {
+            "data": datas,
+            "medicamento_id": "med_a",
+            "consumo_unidades": [10.0] * 35,
+            "feriado": pd.Series([False] * 35, dtype=object),
+            "temperatura_media": 28.0,
+            "chuva_mm": 2.0,
+            "casos_dengue_regiao": 5.0,
+        }
+    )
+    dados.loc[1, "consumo_unidades"] = None
+    dados.loc[2, "consumo_unidades"] = -10
+    dados.loc[20, "consumo_unidades"] = 1_000_000
+    dados.loc[3, "temperatura_media"] = None
+    dados.loc[4, "feriado"] = None
+    return dados
+
+
+def test_pipeline_trata_lacunas_outliers_e_remove_linhas_sem_historico() -> None:
+    saida = gerar_features(_dados_exemplo())
+
+    assert len(saida) == 5  # média móvel de 30 dias exige descartar as 30 primeiras linhas
+    assert not saida.filter(regex=r"^feat_").isna().any().any()
+    assert (saida["consumo_unidades"] >= 0).all()
+    assert saida["consumo_unidades"].max() == 10
+
+
+def test_saida_contem_features_dos_dois_modulos() -> None:
+    saida = gerar_features(_dados_exemplo())
+
+    esperadas = {
+        "feat_lag_1d",
+        "feat_lag_7d",
+        "feat_lag_14d",
+        "feat_media_movel_7d",
+        "feat_media_movel_14d",
+        "feat_media_movel_30d",
+        "feat_dia_semana",
+        "feat_feriado",
+        "feat_casos_dengue_lag7",
+        "feat_temperatura_media_norm",
+    }
+    assert esperadas.issubset(saida.columns)
