@@ -23,7 +23,6 @@ import sys
 from pathlib import Path
 
 import pandas as pd
-from xgboost import __version__ as XGBOOST_VERSION
 
 sys.path.append(str(Path(__file__).resolve().parents[2]))
 from src.models.baseline import JANELA_PADRAO_DIAS, gerar_previsoes_baseline_periodo
@@ -32,20 +31,6 @@ from src.utils.config import HORIZONTE_PREVISAO_DIAS, PERIODO_FIM, PERIODO_INICI
 
 DADOS_MODELAGEM = Path(__file__).resolve().parents[2] / "data" / "processed" / "consumo_medicamentos.csv"
 SAIDA_METRICAS = Path(__file__).resolve().parents[2] / "docs" / "arquitetura" / "RESULTADOS_MODELAGEM.md"
-N_ESTIMATORS_PADRAO = 500
-
-
-def obter_commit_atual() -> str:
-    """Retorna o commit que identifica o código e os dados da execução."""
-    resultado = subprocess.run(
-        ["git", "rev-parse", "HEAD"],
-        cwd=SAIDA_METRICAS.parents[2],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    commit = resultado.stdout.strip()
-    return commit if resultado.returncode == 0 and commit else "não identificado"
 
 
 def avaliar_baseline_periodo(dados_brutos: pd.DataFrame, data_inicio_teste: str, data_fim_teste: str, horizonte: int = HORIZONTE_PREVISAO_DIAS) -> pd.DataFrame:
@@ -108,15 +93,18 @@ def calcular_metricas(comparacao: pd.DataFrame) -> pd.DataFrame:
     return pd.concat([por_medicamento, agregado[["metodo", "medicamento_id", "mae", "mape"]]], ignore_index=True)
 
 
-def gerar_relatorio_markdown(
-    metricas: pd.DataFrame,
-    data_inicio_teste: str,
-    data_fim_teste: str,
-    *,
-    commit_avaliado: str = "não identificado",
-    previsoes_por_metodo: int | None = None,
-    n_estimators: int = N_ESTIMATORS_PADRAO,
-) -> str:
+def _commit_atual() -> str:
+    """SHA curto do commit em que o relatório foi gerado — para rastreabilidade (Issue #54)."""
+    try:
+        resultado = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True, cwd=Path(__file__).resolve().parents[2], check=True
+        )
+        return resultado.stdout.strip()
+    except Exception:
+        return "desconhecido (git indisponível no ambiente)"
+
+
+def gerar_relatorio_markdown(metricas: pd.DataFrame, data_inicio_teste: str, data_fim_teste: str) -> str:
     agregado = metricas[metricas["medicamento_id"] == "TODOS"].set_index("metodo")
     mae_baseline = agregado.loc["baseline", "mae"]
     mae_modelo = agregado.loc["modelo_ml", "mae"]
@@ -127,23 +115,7 @@ def gerar_relatorio_markdown(
         "",
         f"Período de teste: {data_inicio_teste} a {data_fim_teste}. Nenhum dos dois métodos viu dado desse período durante o treino/cálculo — o baseline usa só a janela móvel anterior a cada corte, o modelo é retreinado do zero a cada janela usando só `data <= corte`.",
         "",
-        "## Metadados da execução",
-        "",
-        f"- Commit do código e dos dados avaliados: `{commit_avaliado}`",
-        f"- Dataset: `data/processed/consumo_medicamentos.csv` ({PERIODO_INICIO} a {PERIODO_FIM}; 20 medicamentos, 1.461 dias)",
-        f"- Avaliação: 4 janelas sucessivas de {HORIZONTE_PREVISAO_DIAS} dias"
-        + (f", totalizando {previsoes_por_metodo} previsões por método" if previsoes_por_metodo is not None else ""),
-        f"- Baseline: média móvel simples dos {JANELA_PADRAO_DIAS} dias anteriores, projetada de forma flat por {HORIZONTE_PREVISAO_DIAS} dias",
-        "- Modelo: `XGBRegressor` compartilhado entre medicamentos e horizontes",
-        f"- Ambiente: Python 3.14; `xgboost=={XGBOOST_VERSION}`",
-        f"- Parâmetros do modelo: `n_estimators={n_estimators}`, `max_depth=5`, `learning_rate=0.1`, `subsample=0.8`, `colsample_bytree=0.8`, `random_state=42`, `n_jobs=-1`",
-        f"- Horizonte: {HORIZONTE_PREVISAO_DIAS} dias; `MAPE` calculado somente nos dias com consumo realizado maior que zero",
-        "",
-        "Para regenerar este relatório no estado atual do repositório:",
-        "",
-        "```bash",
-        "python src/evaluation/comparar_modelos.py",
-        "```",
+        f"Dataset de treino/teste: `data/processed/consumo_medicamentos.csv`, período {PERIODO_INICIO} a {PERIODO_FIM} (ver `src/utils/config.py`). **Este relatório é gerado do zero a cada execução de `comparar_modelos.py`** — os números não são comparáveis com versões anteriores deste arquivo se o dataset ou os hiperparâmetros do modelo mudaram entre execuções (ver histórico de melhorias em `src/models/README.md`).",
         "",
         "## Resultado agregado (todos os 20 medicamentos)",
         "",
@@ -176,6 +148,17 @@ def gerar_relatorio_markdown(
         venceu = "Sim" if mae_m < mae_b else "Não"
         linhas.append(f"| {medicamento_id} | {mae_b:.2f} | {mae_m:.2f} | {mape_b:.1f}% | {mape_m:.1f}% | {venceu} |")
 
+    linhas += [
+        "",
+        "## Reprodutibilidade",
+        "",
+        f"- **Commit:** `{_commit_atual()}`",
+        f"- **Período avaliado:** {data_inicio_teste} a {data_fim_teste} (dataset completo: {PERIODO_INICIO} a {PERIODO_FIM})",
+        f"- **Baseline:** média móvel de {JANELA_PADRAO_DIAS} dias (`src/models/baseline.py::prever_baseline`)",
+        "- **Modelo de ML:** XGBoost (`XGBRegressor`, `max_depth=5, learning_rate=0.1, n_estimators=500, subsample=0.8, colsample_bytree=0.8`, `random_state=42`) — ver `src/models/modelo_demanda.py::treinar_modelo`",
+        "- **Comando para regenerar este relatório:** `python src/evaluation/comparar_modelos.py`",
+    ]
+
     return "\n".join(linhas) + "\n"
 
 
@@ -194,12 +177,7 @@ def main() -> None:
     comparacao_baseline = avaliar_baseline_periodo(dados_brutos, data_inicio_teste, data_fim_teste)
     print(f"Baseline: {len(comparacao_baseline)} previsões avaliadas.")
 
-    comparacao_modelo = avaliar_modelo_periodo(
-        dados_brutos,
-        data_inicio_teste,
-        data_fim_teste,
-        n_estimators=N_ESTIMATORS_PADRAO,
-    )
+    comparacao_modelo = avaliar_modelo_periodo(dados_brutos, data_inicio_teste, data_fim_teste)
     print(f"Modelo de ML: {len(comparacao_modelo)} previsões avaliadas.")
 
     comparacao_completa = pd.concat(
@@ -211,14 +189,7 @@ def main() -> None:
     )
 
     metricas = calcular_metricas(comparacao_completa)
-    relatorio = gerar_relatorio_markdown(
-        metricas,
-        data_inicio_teste,
-        data_fim_teste,
-        commit_avaliado=obter_commit_atual(),
-        previsoes_por_metodo=len(comparacao_baseline),
-        n_estimators=N_ESTIMATORS_PADRAO,
-    )
+    relatorio = gerar_relatorio_markdown(metricas, data_inicio_teste, data_fim_teste)
 
     SAIDA_METRICAS.write_text(relatorio, encoding="utf-8")
     print(f"\nRelatório salvo em: {SAIDA_METRICAS}\n")

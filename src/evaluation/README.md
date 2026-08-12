@@ -10,7 +10,7 @@ Roda o baseline (`src/models/baseline.py`, Issue #11) e o modelo de ML (`src/mod
 python src/evaluation/comparar_modelos.py
 ```
 
-Gera [`docs/arquitetura/RESULTADOS_MODELAGEM.md`](../../docs/arquitetura/RESULTADOS_MODELAGEM.md) com o relatório completo.
+Gera [`docs/arquitetura/RESULTADOS_MODELAGEM.md`](../../docs/arquitetura/RESULTADOS_MODELAGEM.md) com o relatório completo, incluindo uma seção "Reprodutibilidade" (commit, período, algoritmo, hiperparâmetros) — regenerar sempre que o dataset ou o modelo mudarem, para o relatório nunca ficar defasado em relação ao código (Issue #54).
 
 **Resultado atual (período de teste 2025-12-04 a 2025-12-31, 4 janelas de 7 dias, dataset de 4 anos):** o modelo de ML reduz o MAE agregado em **1.3%** frente ao baseline (9.47 vs. 9.60 unidades/dia), vencendo em 13 dos 20 medicamentos e perdendo em 7. **Reportado sem maquiagem** — é uma vantagem modesta, não uma vitória esmagadora, e essa é a informação real que temos agora.
 

@@ -112,6 +112,61 @@ def carregar_externos() -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
+# 1.5. Estados latentes persistentes de surto (Issue #58)
+#
+# Antes desta issue, a única fonte de variação de curto prazo era ruído
+# i.i.d. (log-normal independente por dia). Isso significa que o previsor
+# teoricamente ótimo já era a própria média-base — nenhum modelo de ML
+# consegue prever ruído i.i.d. por construção, o que limitava estruturalmente
+# o quanto o modelo (Issue #12) conseguia bater o baseline (Issue #13).
+#
+# Aqui adicionamos um processo latente com memória: uma cadeia de Markov de
+# 3 estados (normal / elevado / surto) que simula surtos com duração real de
+# alguns dias a algumas semanas — não um sorteio novo a cada dia. Dois
+# processos independentes são gerados (não por medicamento, mas
+# compartilhados por categoria sensível, como um "surto" de verdade afetaria
+# vários medicamentos ao mesmo tempo): um para itens sensíveis a
+# clima/respiratório, outro para itens sensíveis a dengue/arboviroses,
+# reaproveitando `_sensivel_clima`/`_sensivel_dengue` já existentes.
+#
+# Isso não elimina o ruído diário (dado real também tem imprevisibilidade),
+# só deixa de ser a única fonte de variação de curto prazo.
+# ---------------------------------------------------------------------------
+
+ESTADOS_SURTO = ("normal", "elevado", "surto")
+MULTIPLICADOR_SURTO = {"normal": 1.0, "elevado": 1.35, "surto": 1.9}
+
+# Matriz de transição (linha = estado atual, coluna = próximo estado).
+# Calibrada para que episódios de "elevado"/"surto" durem tipicamente entre
+# 1 e 4 semanas (não 1 dia isolado) antes de voltar ao normal — ver
+# test_gerador_sintetico.py::test_estado_surto_tem_duracao_de_dias_nao_de_um_dia
+# para a verificação empírica da duração média.
+TRANSICAO_SURTO = np.array(
+    [
+        [0.97, 0.025, 0.005],  # normal -> normal / elevado / surto
+        [0.08, 0.85, 0.07],  # elevado -> normal / elevado / surto
+        [0.05, 0.15, 0.80],  # surto -> normal / elevado / surto
+    ]
+)
+
+
+def gerar_estado_surto(n_dias: int, rng: np.random.Generator) -> np.ndarray:
+    """Cadeia de Markov de 3 estados simulando surtos com duração de dias/semanas."""
+    estados = np.zeros(n_dias, dtype=int)
+    estado_atual = 0  # começa "normal"
+    for t in range(n_dias):
+        estados[t] = estado_atual
+        estado_atual = rng.choice(3, p=TRANSICAO_SURTO[estado_atual])
+    return estados
+
+
+def fator_surto(estados: np.ndarray) -> np.ndarray:
+    """Converte a sequência de estados (índices 0/1/2) no multiplicador correspondente."""
+    multiplicadores = np.array([MULTIPLICADOR_SURTO[estado] for estado in ESTADOS_SURTO])
+    return multiplicadores[estados]
+
+
+# ---------------------------------------------------------------------------
 # 2. Consumo diário (contrato 1.1)
 # ---------------------------------------------------------------------------
 
@@ -140,15 +195,25 @@ def gerar_consumo_diario(externos: pd.DataFrame, medicamentos_ref: pd.DataFrame,
     fator_clima = 1.0 + 0.12 * temp_norm.clip(-2, 2) + 0.05 * chuva_norm.clip(-2, 2)
     fator_dengue = 1.0 + 0.15 * dengue_norm.clip(-2, 3)
 
+    # Estados latentes persistentes de surto (Issue #58) — um processo por
+    # categoria sensível, compartilhado entre os medicamentos daquela
+    # categoria (um surto respiratório de verdade afeta vários medicamentos
+    # ao mesmo tempo, não um só). Seeds próprias, fora da faixa usada pelos
+    # medicamentos individuais (SEED + i) e pelas demais etapas do gerador.
+    estado_surto_respiratorio = gerar_estado_surto(n_dias, np.random.default_rng(SEED + 9000))
+    estado_surto_dengue = gerar_estado_surto(n_dias, np.random.default_rng(SEED + 9001))
+    fator_surto_respiratorio = fator_surto(estado_surto_respiratorio)
+    fator_surto_dengue = fator_surto(estado_surto_dengue)
+
     linhas = []
     for i, item in medicamentos_ref.iterrows():
         rng_item = np.random.default_rng(SEED + i)  # série reprodutível e independente por medicamento
 
         fator = fator_dia_semana.to_numpy() * fator_feriado.to_numpy() * fator_tendencia
         if item["_sensivel_clima"]:
-            fator = fator * fator_clima.to_numpy()
+            fator = fator * fator_clima.to_numpy() * fator_surto_respiratorio
         if item["_sensivel_dengue"]:
-            fator = fator * fator_dengue.to_numpy()
+            fator = fator * fator_dengue.to_numpy() * fator_surto_dengue
 
         media = item["_consumo_base_dia"] * fator
         # Ruído multiplicativo (log-normal) + Poisson para manter valores inteiros plausíveis
@@ -261,14 +326,49 @@ def gerar_sinais_internos(externos: pd.DataFrame, consumo_diario: pd.DataFrame, 
 
 
 # ---------------------------------------------------------------------------
-# 5. Lotes (contrato 1.4) — derivados do estoque final de cada medicamento,
-#    com 2 a 3 casos propositalmente "extremos" para dar exemplos reais de
-#    risco de vencimento e de ruptura no dashboard.
+# 5. Lotes (contrato 1.4) — derivados do estoque final de cada medicamento.
+#
+# Invariante (Issue #53, formalizada em CONTRATOS.md seção 1.4): a soma de
+# `quantidade_atual` dos lotes de um medicamento deve ser igual a
+# `estoque_disponivel` do último dia em `consumo_diario.csv`, a menos de
+# arredondamento (tolerância: no máximo 1 unidade, por causa da conversão de
+# `qtd_final` — que pode não ser inteiro — para quantidades inteiras por
+# lote). Antes desta correção, dois grupos de medicamentos tinham a
+# quantidade dos lotes **sobrescrita** para criar exemplos "dramáticos" de
+# risco de vencimento/falta, o que quebrava essa invariante (Issue #53,
+# reportada por hguimaa) — a versão atual nunca inventa quantidade: os casos
+# de risco de vencimento continuam existindo, mas concentrando uma fração do
+# estoque real num lote de validade curta, em vez de inflar o total.
 # ---------------------------------------------------------------------------
 
-# medicamento_id escolhidos deliberadamente para ilustrar os dois riscos do projeto
-MEDICAMENTOS_RISCO_VENCIMENTO = {"ceftriaxona_inj", "hidrocortisona_inj"}  # lote grande, validade próxima
-MEDICAMENTOS_RISCO_FALTA = {"adrenalina_inj", "salbutamol"}  # estoque baixo relativo ao consumo
+# medicamento_id escolhido deliberadamente para ilustrar risco de vencimento
+# com dado consistente: concentra a maior parte do estoque REAL desse
+# medicamento num lote com validade curta (poucos dias), o suficiente para
+# não dar tempo de ser consumido no ritmo normal — sem inventar quantidade.
+MEDICAMENTOS_RISCO_VENCIMENTO = {"ceftriaxona_inj", "hidrocortisona_inj"}
+
+
+def _distribuir_quantidade_inteira(total: float, pesos: np.ndarray) -> np.ndarray:
+    """Distribui `round(total)` unidades entre `pesos`, com soma exatamente igual ao total (método do maior resto).
+
+    Evita o problema de arredondar cada fatia isoladamente (que pode fazer a
+    soma final divergir do total em várias unidades, dependendo do número de
+    lotes) — aqui o desvio máximo possível é 1 unidade, só por causa do
+    arredondamento do próprio `total` (que normalmente já é ~inteiro).
+    """
+    total_inteiro = int(round(total))
+    se_total_zero = total_inteiro <= 0
+    if se_total_zero:
+        return np.zeros(len(pesos))
+
+    brutos = total_inteiro * pesos
+    base = np.floor(brutos).astype(int)
+    resto = total_inteiro - base.sum()
+    if resto > 0:
+        ordem_maior_resto = np.argsort(-(brutos - base))
+        for idx in ordem_maior_resto[:resto]:
+            base[idx] += 1
+    return base.astype(float)
 
 
 def gerar_lotes(estoque_final: pd.DataFrame, medicamentos_ref: pd.DataFrame, rng: np.random.Generator) -> pd.DataFrame:
@@ -280,20 +380,33 @@ def gerar_lotes(estoque_final: pd.DataFrame, medicamentos_ref: pd.DataFrame, rng
         med_id = item["medicamento_id"]
         qtd_final = float(estoque_final.loc[estoque_final["medicamento_id"] == med_id, "estoque_disponivel"].iloc[-1])
 
-        if med_id in MEDICAMENTOS_RISCO_FALTA:
-            qtd_final = min(qtd_final, item["_consumo_base_dia"] * 1.5)  # força estoque baixo
+        n_lotes = int(rng_item.integers(2, 4))
 
-        n_lotes = rng_item.integers(2, 4)
-        pesos = rng_item.dirichlet(np.ones(n_lotes))
-        quantidades = np.maximum((qtd_final * pesos).round(), 0)
+        if med_id in MEDICAMENTOS_RISCO_VENCIMENTO and n_lotes > 1:
+            # concentra a maior parte do estoque real num único lote (validade curta),
+            # em vez de espalhar uniformemente — sem alterar o total.
+            fracao_concentrada = rng_item.uniform(0.8, 0.95)
+            pesos = np.full(n_lotes, (1 - fracao_concentrada) / (n_lotes - 1))
+            pesos[0] = fracao_concentrada
+        else:
+            pesos = rng_item.dirichlet(np.ones(n_lotes))
+
+        quantidades = _distribuir_quantidade_inteira(qtd_final, pesos)
 
         for lote_idx in range(n_lotes):
             dias_desde_entrada = int(rng_item.integers(5, 120))
             data_entrada = fim - pd.Timedelta(days=dias_desde_entrada)
 
             if med_id in MEDICAMENTOS_RISCO_VENCIMENTO and lote_idx == 0:
-                dias_ate_validade = int(rng_item.integers(10, 25))  # vence em breve, e é o lote com mais quantidade
-                quantidades[0] = max(quantidades[0], item["_consumo_base_dia"] * 20)
+                # validade curta o bastante para não dar tempo de consumir no ritmo
+                # normal: calculada a partir do próprio consumo-base do medicamento
+                # (não um número redondo qualquer), com folga de 30% para continuar
+                # valendo mesmo com a demanda mais alta do fim do período (tendência
+                # de crescimento). Clipada entre 2 e 10 dias para continuar plausível.
+                quantidade_lote = quantidades[0]
+                consumo_base_dia = max(item["_consumo_base_dia"], 1.0)
+                dias_para_estourar_o_risco = quantidade_lote / (consumo_base_dia * 1.3)
+                dias_ate_validade = int(np.clip(dias_para_estourar_o_risco, 2, 10))
             else:
                 dias_ate_validade = int(rng_item.integers(180, 720))
 
@@ -370,13 +483,30 @@ def validar_consumo_diario(df: pd.DataFrame, medicamentos_ref: pd.DataFrame) -> 
         raise ValueError("Valores nulos encontrados em consumo_diario.")
 
 
-def validar_lotes(df: pd.DataFrame, medicamentos_ref: pd.DataFrame) -> None:
+TOLERANCIA_INVENTARIO_UNIDADES = 1.0  # ver CONTRATOS.md secao 1.4
+
+
+def validar_lotes(df: pd.DataFrame, medicamentos_ref: pd.DataFrame, consumo_diario: pd.DataFrame) -> None:
     if not set(df["medicamento_id"]).issubset(set(medicamentos_ref["medicamento_id"])):
         raise ValueError("lotes.csv tem medicamento_id fora da lista de referência.")
     if (df["quantidade_atual"] < 0).any():
         raise ValueError("quantidade_atual negativa em lotes.csv.")
     if (pd.to_datetime(df["data_validade"]) <= pd.to_datetime(df["data_entrada"])).any():
         raise ValueError("Há lote com data_validade anterior/igual à data_entrada.")
+
+    # Invariante de inventário (Issue #53): soma dos lotes == estoque_disponivel
+    # do último dia, por medicamento, a menos da tolerância de arredondamento.
+    soma_lotes = df.groupby("medicamento_id")["quantidade_atual"].sum()
+    ultimo_estoque = (
+        consumo_diario.sort_values("data").groupby("medicamento_id")["estoque_disponivel"].last()
+    )
+    divergencia = (soma_lotes - ultimo_estoque).abs().dropna()
+    inconsistentes = divergencia[divergencia > TOLERANCIA_INVENTARIO_UNIDADES]
+    if not inconsistentes.empty:
+        raise ValueError(
+            "Soma dos lotes diverge de estoque_disponivel além da tolerância "
+            f"({TOLERANCIA_INVENTARIO_UNIDADES} unidade) para: {inconsistentes.to_dict()}"
+        )
 
 
 def validar_pedidos(df: pd.DataFrame, medicamentos_ref: pd.DataFrame) -> None:
@@ -410,7 +540,7 @@ def main() -> None:
     pedidos = gerar_pedidos_pendentes(medicamentos_ref, rng)
 
     validar_consumo_diario(consumo_diario, medicamentos_ref)
-    validar_lotes(lotes, medicamentos_ref)
+    validar_lotes(lotes, medicamentos_ref, consumo_diario)
     validar_pedidos(pedidos, medicamentos_ref)
 
     DIR_PROCESSED.mkdir(parents=True, exist_ok=True)

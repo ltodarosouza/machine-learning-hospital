@@ -51,3 +51,94 @@ Antes de pegar sua primeira task, leia:
 - pandas, scikit-learn / Prophet (previsão de demanda)
 - Streamlit (dashboard)
 - pytest (testes)
+
+## Estado atual do MVP
+
+O MVP cobre o fluxo completo de dados até a recomendação:
+
+- dataset sintético de um pronto-socorro fictício, com 20 medicamentos;
+- dados históricos diários de 2022-01-01 a 2025-12-31;
+- região de referência: João Pessoa, Paraíba;
+- clima diário da Open-Meteo, epidemiologia semanal do InfoDengue convertida para diário e calendário de feriados;
+- lags, médias móveis, calendário e variáveis externas como features;
+- tratamento de valores ausentes, valores negativos e outliers;
+- baseline por média móvel e modelo de demanda com XGBoost;
+- previsão dos próximos sete dias;
+- cálculo de estoque de segurança;
+- recomendação de compra com riscos de falta e vencimento;
+- dashboard Streamlit conectado ao pipeline real.
+
+Os dados hospitalares são sintéticos e calibrados com padrões plausíveis. Os dados externos de clima e epidemiologia são públicos e referem-se a João Pessoa. O projeto não utiliza dados reais de pacientes ou de estoque de um hospital.
+
+## Como executar
+
+Crie o ambiente virtual e instale as dependências:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate       # macOS/Linux
+pip install -r requirements.txt
+```
+
+Para reproduzir o pipeline de dados, execute os scripts nesta ordem:
+
+```bash
+python src/data_ingestion/ingestao_calendario.py
+python src/data_ingestion/ingestao_clima.py
+python src/data_ingestion/ingestao_epidemiologia.py
+python src/data_ingestion/gerar_dataset_sintetico.py
+python src/data_ingestion/consolidar_dataset.py
+```
+
+Os scripts de clima e epidemiologia acessam APIs públicas. Os arquivos gerados ficam em `data/external/` e `data/processed/`.
+
+Execute os testes automatizados com:
+
+```bash
+pytest tests/ -q
+```
+
+Para abrir o dashboard:
+
+```bash
+streamlit run dashboard/app.py
+```
+
+Depois, acesse `http://localhost:8501` no navegador.
+
+Para reproduzir a comparação entre baseline e modelo:
+
+```bash
+python src/evaluation/comparar_modelos.py
+```
+
+## Resultado da modelagem
+
+Na avaliação atual, realizada em quatro janelas de sete dias entre 2025-12-04 e 2025-12-31:
+
+- baseline: MAE de 9,60 unidades/dia;
+- XGBoost: MAE de 9,47 unidades/dia;
+- redução do MAE: 1,3% frente ao baseline;
+- o modelo venceu o baseline em 13 dos 20 medicamentos.
+
+O relatório reproduzível completo está em [docs/arquitetura/RESULTADOS_MODELAGEM.md](docs/arquitetura/RESULTADOS_MODELAGEM.md).
+
+## Estrutura efetiva atual
+
+Além das pastas descritas acima, os scripts de experimentação e tuning ficam em `scripts/`, o modelo atual utiliza `XGBRegressor` e a interface está concentrada em `dashboard/app.py`.
+
+## Limitações conhecidas
+
+- o hospital, o consumo, o estoque, os lotes e os pedidos são sintéticos;
+- DATASUS/OpenDataSUS ainda não está integrado ao MVP;
+- o dashboard apresenta recomendações, mas não registra a aprovação ou a realização de uma compra;
+- a avaliação de impacto financeiro e de redução de rupturas/vencimentos ainda é uma etapa futura;
+- a fonte climática é a Open-Meteo, com dados de reanálise, e não uma estação local específica.
+
+## Observação para macOS
+
+O XGBoost pode exigir o runtime OpenMP para carregar sua biblioteca nativa. Em instalações com Homebrew, use:
+
+```bash
+brew install libomp
+```
