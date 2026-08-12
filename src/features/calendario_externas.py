@@ -20,12 +20,11 @@ Features geradas:
       "caso" registrado) — por isso defasado, diferente de
       temperatura/chuva, que assumimos com efeito mais imediato.
     - feat_temperatura_media_norm, feat_chuva_mm_norm,
-      feat_casos_dengue_regiao_norm: variáveis externas normalizadas
-      (z-score, média/desvio calculados sobre o próprio `df` recebido).
+      feat_casos_dengue_regiao_norm: variáveis externas normalizadas por
+      z-score causal, com histórico anterior de cada medicamento.
 
 Nota sobre `feat_casos_dengue_lag7` e o normalizador: como usam janela/
-estatística sobre o passado (ou o dataframe inteiro, no caso da
-normalização), os primeiros dias de cada medicamento ficam com
+estatística sobre o passado, os primeiros dias de cada medicamento ficam com
 `feat_casos_dengue_lag7` nulo (sem 7 dias anteriores disponíveis) — é
 esperado, tratado na Issue #10, não aqui.
 """
@@ -65,28 +64,29 @@ def gerar_features_externas_defasadas(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def gerar_features_normalizadas(df: pd.DataFrame) -> pd.DataFrame:
-    """Normaliza (z-score) as variáveis externas, usando média/desvio do próprio `df` recebido.
+    """Normaliza externas sem olhar o futuro (z-score causal por medicamento).
 
-    Atenção para quem for treinar o modelo (Issue #12): se `df` incluir
-    dado de teste, a normalização "vaza" estatística do futuro para o
-    passado (data leakage). O ideal é chamar esta função só com o
-    período de treino e aplicar a mesma média/desvio (retornados aqui)
-    no período de teste, em vez de recalcular.
+    Para cada data, média e desvio-padrão usam exclusivamente as observações
+    anteriores do medicamento. Sem variabilidade histórica suficiente, a
+    feature recebe zero.
     """
-    resultado = df.copy()
+    resultado = df.copy().sort_values(["medicamento_id", "data"]).copy()
 
-    estatisticas = {}
     for coluna, nome_feature in [
         ("temperatura_media", "feat_temperatura_media_norm"),
         ("chuva_mm", "feat_chuva_mm_norm"),
         ("casos_dengue_regiao", "feat_casos_dengue_regiao_norm"),
     ]:
-        media = df[coluna].mean()
-        desvio = df[coluna].std()
-        estatisticas[coluna] = {"media": media, "desvio": desvio}
-        resultado[nome_feature] = (df[coluna] - media) / desvio if desvio > 0 else 0.0
-
-    resultado.attrs["estatisticas_normalizacao"] = estatisticas
+        historico = resultado.groupby("medicamento_id", sort=False)[coluna].shift(1)
+        media_anterior = historico.groupby(resultado["medicamento_id"], sort=False).transform(
+            lambda serie: serie.expanding().mean()
+        )
+        desvio_anterior = historico.groupby(resultado["medicamento_id"], sort=False).transform(
+            lambda serie: serie.expanding().std(ddof=0)
+        )
+        resultado[nome_feature] = ((resultado[coluna] - media_anterior) / desvio_anterior).where(
+            desvio_anterior.gt(0), 0.0
+        )
     return resultado
 
 
