@@ -22,11 +22,9 @@ docs/arquitetura/RESULTADOS_MODELAGEM.md e src/models/README.md.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
 import sys
 
-import joblib
 import numpy as np
 import pandas as pd
 from sklearn.compose import ColumnTransformer
@@ -35,8 +33,21 @@ from sklearn.pipeline import Pipeline
 from xgboost import XGBRegressor
 
 sys.path.append(str(Path(__file__).resolve().parents[2]))
+from src.models.artefato import CAMINHO_MODELO_PADRAO, ModeloDemanda, carregar_modelo, salvar_modelo
 from src.utils.config import HORIZONTE_PREVISAO_DIAS
 
+__all__ = [
+    "CAMINHO_MODELO_PADRAO",
+    "ModeloDemanda",
+    "carregar_modelo",
+    "salvar_modelo",
+    "preparar_dados_supervisionados",
+    "treinar_modelo",
+    "prever_demanda",
+    "avaliar_validacao_temporal",
+    "validar_saida_modelo",
+    "COLUNAS_SAIDA",
+]
 
 COLUNAS_SAIDA = [
     "medicamento_id",
@@ -46,18 +57,8 @@ COLUNAS_SAIDA = [
     "intervalo_superior",
 ]
 COLUNAS_OBRIGATORIAS = {"data", "medicamento_id", "consumo_unidades"}
-CAMINHO_MODELO_PADRAO = Path(__file__).resolve().parents[2] / "models_output" / "modelo_demanda.joblib"
 DADOS_MODELAGEM = Path(__file__).resolve().parents[2] / "data" / "processed" / "consumo_medicamentos.csv"
 Z_INTERVALO = 1.0
-
-
-@dataclass
-class ModeloDemanda:
-    """Artefato necessário para gerar previsões reproduzíveis."""
-
-    pipeline: Pipeline
-    colunas_preditivas: list[str]
-    desvio_residual_por_medicamento: dict[str, float]
 
 
 def preparar_dados_supervisionados(
@@ -202,17 +203,6 @@ def avaliar_validacao_temporal(
         mean_absolute_error(comparacao["consumo_unidades"], comparacao["demanda_prevista"])
     )
     return comparacao
-
-
-def salvar_modelo(modelo: ModeloDemanda, caminho: Path = CAMINHO_MODELO_PADRAO) -> None:
-    """Persiste o artefato treinado; o diretório de saída não é versionado."""
-    caminho.parent.mkdir(parents=True, exist_ok=True)
-    joblib.dump(modelo, caminho)
-
-
-def carregar_modelo(caminho: Path = CAMINHO_MODELO_PADRAO) -> ModeloDemanda:
-    """Carrega um artefato salvo por :func:`salvar_modelo`."""
-    return joblib.load(caminho)
 
 
 def validar_saida_modelo(
