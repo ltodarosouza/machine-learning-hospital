@@ -1,4 +1,4 @@
-"""Testes do gerador sintético (Issues #53, #58 e #59)."""
+"""Testes do gerador sintético (Issues #53, #58, #59, #60 e #61)."""
 
 import inspect
 import numpy as np
@@ -6,13 +6,18 @@ import pandas as pd
 import pytest
 
 from src.data_ingestion.gerar_dataset_sintetico import (
+    CATEGORIAS_PERFIL_CONTINUO,
+    CATEGORIAS_PERFIL_ERRATICO,
     ESTADOS_SURTO,
     MULTIPLICADOR_SURTO,
+    PERFIS_PERSISTENCIA,
     TOLERANCIA_INVENTARIO_UNIDADES,
     _distribuir_quantidade_inteira,
+    _perfil_persistencia_por_categoria,
     fator_surto,
     gerar_consumo_diario,
     gerar_estado_surto,
+    gerar_ruido_ar1,
     gerar_sinais_internos,
     montar_medicamentos_ref,
     simular_estoque,
@@ -161,6 +166,69 @@ def test_fator_surto_mapeia_estado_para_multiplicador_correto() -> None:
     assert (fatores == esperado).all()
     assert fatores[0] == 1.0  # normal não altera a média-base
     assert fatores[4] > fatores[1] > fatores[0]  # surto > elevado > normal
+
+
+def _autocorrelacao_lag1(serie: np.ndarray) -> float:
+    log_serie = np.log(serie)
+    return float(np.corrcoef(log_serie[:-1], log_serie[1:])[0, 1])
+
+
+@pytest.mark.parametrize("perfil", ["continuo", "intermitente", "erratico"])
+def test_ruido_ar1_tem_autocorrelacao_proxima_do_phi_alvo(perfil: str) -> None:
+    params = PERFIS_PERSISTENCIA[perfil]
+    ruido = gerar_ruido_ar1(3000, params["phi"], params["sigma_estacionario"], np.random.default_rng(7))
+    autocorrelacao = _autocorrelacao_lag1(ruido)
+    assert abs(autocorrelacao - params["phi"]) < 0.05, (
+        f"autocorrelação empírica ({autocorrelacao:.3f}) longe do phi alvo ({params['phi']})."
+    )
+
+
+def test_perfis_de_persistencia_tem_memoria_em_ordem_crescente() -> None:
+    """Critério de aceite explícito da Issue #61: contínuo e intermitente
+    devem ter mais memória de curto prazo que errático."""
+    autocorrelacoes = {}
+    for perfil, params in PERFIS_PERSISTENCIA.items():
+        ruido = gerar_ruido_ar1(3000, params["phi"], params["sigma_estacionario"], np.random.default_rng(7))
+        autocorrelacoes[perfil] = _autocorrelacao_lag1(ruido)
+
+    assert autocorrelacoes["continuo"] > autocorrelacoes["intermitente"] > autocorrelacoes["erratico"]
+    assert autocorrelacoes["erratico"] < 0.15  # praticamente sem memória, equivalente ao i.i.d. anterior
+
+
+def test_ruido_ar1_e_reprodutivel_e_sempre_positivo() -> None:
+    ruido_1 = gerar_ruido_ar1(500, 0.7, 0.12, np.random.default_rng(11))
+    ruido_2 = gerar_ruido_ar1(500, 0.7, 0.12, np.random.default_rng(11))
+    assert (ruido_1 == ruido_2).all()
+    assert (ruido_1 > 0).all()
+
+
+@pytest.mark.parametrize(
+    "categoria,perfil_esperado",
+    [
+        ("Dor/febre", "continuo"),
+        ("Suporte/hidratação", "continuo"),
+        ("Emergência/controlado", "erratico"),
+        ("Respiratório", "intermitente"),
+        ("Gastro", "intermitente"),
+        ("Categoria inexistente", "intermitente"),  # default seguro
+    ],
+)
+def test_perfil_persistencia_por_categoria(categoria: str, perfil_esperado: str) -> None:
+    assert _perfil_persistencia_por_categoria(categoria) == perfil_esperado
+
+
+def test_medicamentos_ref_tem_perfil_de_persistencia_para_todos() -> None:
+    ref = montar_medicamentos_ref()
+    assert set(ref["_perfil_persistencia"]) <= set(PERFIS_PERSISTENCIA)
+    assert ref["_perfil_persistencia"].notna().all()
+
+    # categorias explicitamente mapeadas para continuo/erratico devem aparecer com esse perfil
+    for categoria in CATEGORIAS_PERFIL_CONTINUO:
+        if categoria in set(ref["categoria"]):
+            assert (ref.loc[ref["categoria"] == categoria, "_perfil_persistencia"] == "continuo").all()
+    for categoria in CATEGORIAS_PERFIL_ERRATICO:
+        if categoria in set(ref["categoria"]):
+            assert (ref.loc[ref["categoria"] == categoria, "_perfil_persistencia"] == "erratico").all()
 
 
 def test_ruptura_censura_dispensacao_mas_preserva_demanda_latente() -> None:

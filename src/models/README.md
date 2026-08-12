@@ -137,15 +137,20 @@ modelo): **#58** (estados latentes de surto com duração — ✅ feita,
 de ~14 dias em média em vez de ruído por dia), **#59** (corrige causalidade
 invertida de `atendimentos_ps`), **#60** (separa demanda latente de
 dispensação observada em rupturas) e **#61** (classes de persistência por
-medicamento, ruído autocorrelacionado).
+medicamento, ruído autocorrelacionado — ✅ feita, `gerar_ruido_ar1` em
+`gerar_dataset_sintetico.py`, cada medicamento com um perfil contínuo/
+intermitente/errático em vez do mesmo ruído i.i.d. para todos).
 
-**Atenção:** a Issue #58 já foi feita, o dataset foi regenerado com ela e a
-comparação de baseline contra XGBoost foi reexecutada. Os números atuais estão
-em `docs/arquitetura/RESULTADOS_MODELAGEM.md`; já as tabelas de comparação de
-algoritmos e tuning acima ainda refletem o dataset **sem** os estados de surto,
-porque essa reavaliação ficou fora do escopo da #58. Ficam pendentes também as
-issues #59-#61, e depois de todas vale reabrir a comparação de algoritmos para
-medir o efeito combinado.
+**Atenção:** as Issues #58 e #61 já foram feitas, e cada uma regenerou o
+dataset de novo (mesma seed, lógica de geração diferente). A comparação de
+baseline contra XGBoost em `docs/arquitetura/RESULTADOS_MODELAGEM.md` foi
+reexecutada depois da #58, mas **ainda não depois da #61** — os números lá
+podem estar levemente desatualizados agora. As tabelas de comparação de
+algoritmos e tuning mais acima nesta seção refletem uma versão ainda mais
+antiga do dataset (antes de #58 e #61). Ficam pendentes as issues #59 e #60;
+depois delas (ou já agora, se alguém quiser adiantar), vale reabrir
+`scripts/comparar_algoritmos_modelo.py` + `src/evaluation/comparar_modelos.py`
+para medir o efeito combinado com números atualizados.
 
 **Tamanho do dataset, para contexto:** 1.461 dias (4 anos) × 20 medicamentos =
 29.220 linhas brutas; depois do "aquecimento" das médias móveis de 30 dias,

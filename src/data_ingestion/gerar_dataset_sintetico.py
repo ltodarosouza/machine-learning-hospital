@@ -94,10 +94,69 @@ COLUNAS_REF = [
     "_sensivel_dengue",
 ]
 
+# ---------------------------------------------------------------------------
+# Classes de persistência por medicamento (Issue #61).
+#
+# Até aqui, o ruído de curto prazo era log-normal *independente a cada dia*
+# para todo medicamento igualmente — mas medicamentos diferentes têm
+# dinâmicas de consumo bem diferentes na prática: itens de alto volume e uso
+# rotineiro (soros, analgésicos comuns) variam suavemente dia a dia; itens
+# ligados a picos concentrados (respiratórios) têm rajadas que duram alguns
+# dias; itens raros/de emergência (controlados) são dominados por eventos
+# pontuais, sem padrão de curto prazo para aprender.
+#
+# `phi` é o coeficiente de autocorrelação de um processo AR(1) em escala
+# log (ver `gerar_ruido_ar1`): phi perto de 1 = memória forte (o ruído de
+# hoje parece com o de ontem); phi perto de 0 = praticamente independente
+# (equivalente ao comportamento antigo, i.i.d.). `sigma_estacionario` é
+# calibrado para manter a mesma amplitude de variação de antes (0.12) em
+# regime permanente, independente de `phi` — a mudança é só de memória, não
+# de volatilidade total.
+# ---------------------------------------------------------------------------
+
+PERFIS_PERSISTENCIA = {
+    "continuo": {"phi": 0.85, "sigma_estacionario": 0.12},
+    "intermitente": {"phi": 0.55, "sigma_estacionario": 0.12},
+    "erratico": {"phi": 0.05, "sigma_estacionario": 0.12},
+}
+CATEGORIAS_PERFIL_CONTINUO = {"Dor/febre", "Suporte/hidratação"}
+CATEGORIAS_PERFIL_ERRATICO = {"Emergência/controlado"}
+# Todas as demais categorias (Respiratório, Respiratório/alergia, Gastro,
+# Antibiótico, Dor/inflamação, Dor, Alergia, Dor/febre (pediátrico)) caem em
+# "intermitente" por padrão — meio-termo razoável sem precisar de uma regra
+# dedicada para cada uma.
+
+
+def _perfil_persistencia_por_categoria(categoria: str) -> str:
+    if categoria in CATEGORIAS_PERFIL_CONTINUO:
+        return "continuo"
+    if categoria in CATEGORIAS_PERFIL_ERRATICO:
+        return "erratico"
+    return "intermitente"
+
 
 def montar_medicamentos_ref() -> pd.DataFrame:
     df = pd.DataFrame(MEDICAMENTOS_REF, columns=COLUNAS_REF)
+    df["_perfil_persistencia"] = df["categoria"].map(_perfil_persistencia_por_categoria)
     return df
+
+
+def gerar_ruido_ar1(n_dias: int, phi: float, sigma_estacionario: float, rng: np.random.Generator) -> np.ndarray:
+    """Ruído multiplicativo com memória: AR(1) em escala log, depois exponenciado.
+
+    Mantém o ruído sempre positivo (como o log-normal i.i.d. anterior) e
+    centrado em 1.0 (não desloca a média-base), mas com autocorrelação
+    controlada por `phi` em vez de ser um sorteio novo a cada dia.
+    """
+    sigma_inovacao = sigma_estacionario * np.sqrt(max(1.0 - phi**2, 1e-9))
+    inovacoes = rng.normal(0.0, sigma_inovacao, size=n_dias)
+
+    log_ruido = np.empty(n_dias)
+    log_ruido[0] = rng.normal(0.0, sigma_estacionario)  # já parte da distribuição estacionária
+    for t in range(1, n_dias):
+        log_ruido[t] = phi * log_ruido[t - 1] + inovacoes[t]
+
+    return np.exp(log_ruido)
 
 
 def carregar_externos() -> pd.DataFrame:
@@ -248,8 +307,11 @@ def gerar_consumo_diario(
             fator = fator * fatores["fator_dengue"] * fatores["fator_surto_dengue"]
 
         media = item["_consumo_base_dia"] * fator
-        # Ruído multiplicativo (log-normal) + Poisson para manter valores inteiros plausíveis
-        ruido = rng_item.lognormal(mean=0.0, sigma=0.12, size=n_dias)
+        # Ruído multiplicativo com memória (Issue #61) + Poisson para manter
+        # valores inteiros plausíveis. O perfil de persistência (contínuo/
+        # intermitente/errático) controla quanta autocorrelação o ruído tem.
+        perfil = PERFIS_PERSISTENCIA[item["_perfil_persistencia"]]
+        ruido = gerar_ruido_ar1(n_dias, perfil["phi"], perfil["sigma_estacionario"], rng_item)
         consumo = rng_item.poisson(lam=np.clip(media * ruido, 1, None))
 
         linhas.append(
@@ -624,7 +686,9 @@ def main() -> None:
 
     DIR_PROCESSED.mkdir(parents=True, exist_ok=True)
     consumo_diario.to_csv(SAIDA_CONSUMO, index=False, encoding="utf-8")
-    medicamentos_ref.drop(columns=["_consumo_base_dia", "_sensivel_clima", "_sensivel_dengue"]).to_csv(
+    medicamentos_ref.drop(
+        columns=["_consumo_base_dia", "_sensivel_clima", "_sensivel_dengue", "_perfil_persistencia"]
+    ).to_csv(
         SAIDA_MEDICAMENTOS_REF, index=False, encoding="utf-8"
     )
     lotes.to_csv(SAIDA_LOTES, index=False, encoding="utf-8")
