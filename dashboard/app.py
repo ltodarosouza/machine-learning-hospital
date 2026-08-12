@@ -1,8 +1,4 @@
-"""Dashboard demonstrativo do Machine Learning Hospital.
-
-Este wireframe usa dados mockados para validar a experiência do gestor antes da
-integração com o motor de recomendação (Issue #20).
-"""
+"""Dashboard do Machine Learning Hospital conectado ao pipeline real."""
 
 from pathlib import Path
 import sys
@@ -14,8 +10,10 @@ import streamlit as st
 BASE_DIR = Path(__file__).resolve().parent
 RAIZ_PROJETO = BASE_DIR.parent
 sys.path.append(str(RAIZ_PROJETO))
-ARQUIVO_MOCK = BASE_DIR / "data" / "mock_recomendacoes.csv"
 ARQUIVO_CONSUMO = RAIZ_PROJETO / "data" / "processed" / "consumo_medicamentos.csv"
+ARQUIVO_MEDICAMENTOS = RAIZ_PROJETO / "data" / "processed" / "medicamentos_ref.csv"
+ARQUIVO_PEDIDOS = RAIZ_PROJETO / "data" / "processed" / "pedidos_pendentes.csv"
+ARQUIVO_LOTES = RAIZ_PROJETO / "data" / "processed" / "lotes.csv"
 COLUNAS_OBRIGATORIAS = {
     "medicamento_id",
     "nome",
@@ -33,27 +31,87 @@ RISCO_CONFIG = {
 }
 
 
-@st.cache_data
-def carregar_dados(caminho: Path = ARQUIVO_MOCK) -> pd.DataFrame:
-    """Carrega recomendações para o painel.
-
-    A função é o único ponto de acesso aos dados. Na Issue #20, a leitura do
-    CSV mockado deve ser substituída pela chamada ao motor de recomendação,
-    preservando o DataFrame no contrato da seção 4 de CONTRATOS.md.
-    """
-    dados = pd.read_csv(caminho)
+def _validar_dados_painel(dados: pd.DataFrame) -> pd.DataFrame:
+    """Valida e normaliza a fronteira entre o pipeline e a interface."""
     faltantes = COLUNAS_OBRIGATORIAS.difference(dados.columns)
     if faltantes:
         nomes = ", ".join(sorted(faltantes))
         raise ValueError(f"O dataset do dashboard não contém: {nomes}.")
 
+    if dados[list(COLUNAS_OBRIGATORIAS)].isna().any().any():
+        raise ValueError("A recomendação real contém valores ausentes para o dashboard.")
+
     for coluna in ("risco_falta", "risco_vencimento"):
-        dados[coluna] = dados[coluna].fillna("baixo").astype(str).str.lower()
+        dados[coluna] = dados[coluna].astype(str).str.lower()
+        valores_invalidos = set(dados[coluna]).difference(RISCO_CONFIG)
+        if valores_invalidos:
+            raise ValueError(
+                f"Níveis inválidos em {coluna}: {sorted(valores_invalidos)}."
+            )
 
     dados["compra_recomendada"] = pd.to_numeric(
         dados["compra_recomendada"], errors="coerce"
-    ).fillna(0)
-    return dados
+    )
+    if dados["compra_recomendada"].isna().any() or (dados["compra_recomendada"] < 0).any():
+        raise ValueError("compra_recomendada deve ser numérica e não negativa.")
+    return dados.sort_values("medicamento_id").reset_index(drop=True)
+
+
+def gerar_dados_painel(
+    consumo: pd.DataFrame,
+    medicamentos: pd.DataFrame,
+    pedidos: pd.DataFrame,
+    lotes: pd.DataFrame,
+    n_estimators: int = 100,
+) -> pd.DataFrame:
+    """Executa o pipeline de previsão e recomendação consumido pelo painel.
+
+    O dashboard apenas orquestra os módulos: previsão, estoque de segurança e
+    motor de recomendação mantêm suas respectivas regras de negócio. ``nome`` e
+    ``categoria`` são enriquecimento de apresentação vindo do cadastro estático.
+    """
+    from src.features.pipeline import gerar_features
+    from src.models.modelo_demanda import prever_demanda, treinar_modelo
+    from src.recommendation.estoque_seguranca import calcular_estoque_seguranca
+    from src.recommendation.motor_recomendacao import gerar_recomendacoes
+
+    consumo = consumo.copy()
+    consumo["data"] = pd.to_datetime(consumo["data"])
+    data_corte = consumo["data"].max()
+    if pd.isna(data_corte):
+        raise ValueError("O histórico de consumo não possui uma data de corte válida.")
+
+    features = gerar_features(consumo)
+    modelo = treinar_modelo(features, n_estimators=n_estimators)
+    previsoes = prever_demanda(modelo, features, data_corte)
+    seguranca = calcular_estoque_seguranca(consumo, medicamentos)
+    estoque = consumo[["medicamento_id", "data", "estoque_disponivel"]]
+    recomendacoes = gerar_recomendacoes(
+        previsoes,
+        estoque_atual=estoque,
+        estoque_seguranca=seguranca,
+        pedidos_pendentes=pedidos,
+        medicamentos_referencia=medicamentos,
+        lotes=lotes,
+    )
+    dados = recomendacoes.merge(
+        medicamentos[["medicamento_id", "nome", "categoria"]],
+        on="medicamento_id",
+        how="left",
+        validate="one_to_one",
+    )
+    return _validar_dados_painel(dados)
+
+
+@st.cache_data(show_spinner="Calculando recomendações reais do pipeline...")
+def carregar_dados() -> pd.DataFrame:
+    """Carrega recomendações reais, sem recorrer ao CSV mockado."""
+    return gerar_dados_painel(
+        pd.read_csv(ARQUIVO_CONSUMO),
+        pd.read_csv(ARQUIVO_MEDICAMENTOS),
+        pd.read_csv(ARQUIVO_PEDIDOS),
+        pd.read_csv(ARQUIVO_LOTES),
+    )
 
 
 def rotulo_risco(risco: str) -> str:
@@ -71,7 +129,7 @@ def risco_principal(linha: pd.Series) -> str:
 
 def mostrar_visao_geral(dados: pd.DataFrame) -> None:
     st.title("Visão geral do estoque")
-    st.caption("Recomendações simuladas para validar o fluxo do painel.")
+    st.caption("Recomendações calculadas pelo pipeline a partir do histórico disponível.")
 
     alertas_altos = dados.apply(risco_principal, axis=1).eq("alto").sum()
     recomendacoes = dados.loc[dados["compra_recomendada"] > 0, "compra_recomendada"].sum()
@@ -135,9 +193,7 @@ def mostrar_detalhe(dados: pd.DataFrame) -> None:
     terceira.metric("Risco de vencimento", rotulo_risco(medicamento["risco_vencimento"]))
 
     st.info(medicamento["justificativa"], icon="💡")
-    st.caption(
-        "Os valores desta tela são simulados. A integração com dados reais será feita na Issue #20."
-    )
+    st.caption("Valores calculados pelo pipeline no horizonte dos próximos 7 dias.")
 
 
 @st.cache_data(show_spinner="Calculando previsões históricas do modelo...")
