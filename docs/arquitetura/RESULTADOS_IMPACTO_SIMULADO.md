@@ -6,8 +6,8 @@ Período simulado: 2025-12-04 a 2025-12-31.
 
 | Métrica | Baseline | Modelo ML | Redução | Redução (%) |
 |---|---:|---:|---:|---:|
-| episodios_ruptura | 74.00 | 72.00 | 2.00 | 2.7% |
-| unidades_em_ruptura | 1878.37 | 1907.66 | -29.29 | -1.6% |
-| compras_emergenciais_unidades | 1878.37 | 1907.66 | -29.29 | -1.6% |
-| custo_compras_emergenciais_reais | 9009.46 | 9693.02 | -683.56 | -7.6% |
+| episodios_ruptura | 97.00 | 98.00 | -1.00 | -1.0% |
+| unidades_em_ruptura | 2031.09 | 2128.58 | -97.49 | -4.8% |
+| compras_emergenciais_unidades | 2031.09 | 2128.58 | -97.49 | -4.8% |
+| custo_compras_emergenciais_reais | 8236.29 | 8213.99 | 22.30 | 0.3% |
 | unidades_vencidas | 0.00 | 0.00 | 0.00 | — |
