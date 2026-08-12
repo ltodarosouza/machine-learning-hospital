@@ -86,7 +86,6 @@ def mostrar_visao_geral(dados: pd.DataFrame) -> None:
             "categoria": "Categoria",
             "risco": "Alerta",
             "compra_recomendada": "Compra recomendada (un.)",
-            "justificativa": "Justificativa",
         }
     )
     st.dataframe(
@@ -96,12 +95,21 @@ def mostrar_visao_geral(dados: pd.DataFrame) -> None:
                 "Categoria",
                 "Alerta",
                 "Compra recomendada (un.)",
-                "Justificativa",
             ]
         ],
         hide_index=True,
         width="stretch",
     )
+
+    st.subheader("Justificativas das recomendações")
+    st.caption("Abra um medicamento para ler a justificativa completa, sem alterar a tabela resumida.")
+    for _, medicamento in dados.iterrows():
+        titulo = (
+            f"{rotulo_risco(risco_principal(medicamento))} "
+            f"{medicamento['nome']} · {medicamento['compra_recomendada']:,.0f} un."
+        )
+        with st.expander(titulo):
+            st.write(medicamento["justificativa"])
 
 
 def mostrar_detalhe(dados: pd.DataFrame) -> None:
