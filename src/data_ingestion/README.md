@@ -30,7 +30,15 @@ Saída: `data/external/clima.csv` — colunas `data`, `temperatura_media` (°C),
 
 **Nota importante:** o plano original (`FONTES_DADOS.md`) era usar o INMET. Na prática, o portal do INMET não respondeu a chamadas automatizadas no ambiente em que essa task foi feita, então a fonte foi trocada para Open-Meteo — mesmo tipo de dado (temperatura/chuva reais), mais fácil de automatizar. Detalhes e como trocar de volta para INMET se o time preferir: ver `docs/arquitetura/FONTES_DADOS.md` seção 1.
 
-### `ingestao_epidemiologia.py` (Issue #5) — pendente
+### `ingestao_epidemiologia.py` (Issue #5) — pronto
+
+Busca casos semanais de dengue na API pública do InfoDengue (geocódigo IBGE de João Pessoa, confirmado nesta task) e converte para diário (média da semana / 7, repetida nos 7 dias — decisão documentada no código).
+
+```bash
+python src/data_ingestion/ingestao_epidemiologia.py
+```
+
+Saída: `data/external/epidemiologia.csv` — colunas `data`, `casos_dengue_regiao`. Commitado no repositório pelo mesmo motivo dos outros dados externos.
 
 ### Consolidação (Issue #7) — pendente
 

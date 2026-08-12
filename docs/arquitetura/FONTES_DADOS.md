@@ -15,9 +15,9 @@ Região de referência do MVP: **João Pessoa – PB** (ver escopo completo em [
 
 - **O quê:** casos estimados/notificados de dengue (e possivelmente outras arboviroses) por semana epidemiológica.
 - **Fonte:** InfoDengue (Fiocruz/UFMG) — https://info.dengue.mat.br, tem API pública (https://info.dengue.mat.br/api/) que retorna dados por município via geocódigo do IBGE.
-- **Geocódigo IBGE de João Pessoa:** 2507507 (confirmar no momento da implementação — código sujeito a checagem, buscar em https://www.ibge.gov.br caso divirja).
+- **Geocódigo IBGE de João Pessoa:** 2507507 — **confirmado** na Issue #5 (a resposta da API retorna `municipio_nome: "João Pessoa"` para esse código).
 - **Formato de acesso:** API REST retornando JSON, filtrável por município e intervalo de datas/semanas epidemiológicas.
-- **Conversão necessária:** o dado vem por semana epidemiológica — a Issue #5 precisa converter para granularidade diária (repetir o valor da semana nos 7 dias, ou interpolar entre semanas — decisão de quem implementar, documentar a escolha).
+- **Conversão feita (Issue #5):** o dado vem por semana epidemiológica (`casos_est`, casos estimados na semana inteira). Convertido para diário dividindo por 7 e repetindo nos 7 dias da semana — ou seja, `casos_dengue_regiao` é uma média diária aproximada, não o total semanal. Ver racional completo em `src/data_ingestion/ingestao_epidemiologia.py`.
 - **DATASUS/OpenDataSUS:** avaliado como fonte alternativa/complementar (internações, atendimentos gerais), mas tem acesso mais burocrático e granularidade menos amigável para o prazo do projeto. Decisão do kickoff: **não usar diretamente no MVP**, priorizar InfoDengue que é mais direto via API. Se sobrar tempo, pode ser revisitado.
 
 ## 3. Calendário de feriados
