@@ -37,8 +37,25 @@ confiança formais.
 python src/models/modelo_demanda.py
 ```
 
-O comando executa uma validação temporal e salva o artefato reproduzível em
-`models_output/modelo_demanda.joblib`.
+O comando executa uma validação temporal e salva o artefato **de verdade
+reproduzível** em `models_output/modelo_demanda.joblib` — reproduzível aqui
+quer dizer especificamente que ele carrega em qualquer outro processo
+Python, não só no que o treinou (ver `artefato.py` abaixo e o teste
+`tests/test_artefato_modelo.py`, que executa esse comando via subprocesso e
+carrega o resultado no processo do pytest).
+
+### `artefato.py` (Issue #52) — pronto
+
+Isola a dataclass `ModeloDemanda` e as funções `salvar_modelo`/`carregar_modelo`
+num módulo que **nunca** é executado como script. Motivo: `python src/models/modelo_demanda.py`
+faz o Python tratar aquele arquivo como o módulo `__main__` — se uma classe
+serializável fosse definida ali (como estava antes desta correção), o
+pickle grava `__module__ == "__main__"`, e qualquer processo novo que
+importe `src.models.modelo_demanda` normalmente falha ao carregar com
+`AttributeError: module '__main__' has no attribute 'ModeloDemanda'`. Foi
+exatamente esse bug que aconteceu neste projeto. `salvar_modelo`/`carregar_modelo`
+continuam acessíveis via `src.models.modelo_demanda` (reexportados) — nenhum
+código que já os importava dali precisa mudar.
 
 ### Histórico de melhorias (não é a versão original desta Issue)
 
