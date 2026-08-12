@@ -112,6 +112,61 @@ def carregar_externos() -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
+# 1.5. Estados latentes persistentes de surto (Issue #58)
+#
+# Antes desta issue, a única fonte de variação de curto prazo era ruído
+# i.i.d. (log-normal independente por dia). Isso significa que o previsor
+# teoricamente ótimo já era a própria média-base — nenhum modelo de ML
+# consegue prever ruído i.i.d. por construção, o que limitava estruturalmente
+# o quanto o modelo (Issue #12) conseguia bater o baseline (Issue #13).
+#
+# Aqui adicionamos um processo latente com memória: uma cadeia de Markov de
+# 3 estados (normal / elevado / surto) que simula surtos com duração real de
+# alguns dias a algumas semanas — não um sorteio novo a cada dia. Dois
+# processos independentes são gerados (não por medicamento, mas
+# compartilhados por categoria sensível, como um "surto" de verdade afetaria
+# vários medicamentos ao mesmo tempo): um para itens sensíveis a
+# clima/respiratório, outro para itens sensíveis a dengue/arboviroses,
+# reaproveitando `_sensivel_clima`/`_sensivel_dengue` já existentes.
+#
+# Isso não elimina o ruído diário (dado real também tem imprevisibilidade),
+# só deixa de ser a única fonte de variação de curto prazo.
+# ---------------------------------------------------------------------------
+
+ESTADOS_SURTO = ("normal", "elevado", "surto")
+MULTIPLICADOR_SURTO = {"normal": 1.0, "elevado": 1.35, "surto": 1.9}
+
+# Matriz de transição (linha = estado atual, coluna = próximo estado).
+# Calibrada para que episódios de "elevado"/"surto" durem tipicamente entre
+# 1 e 4 semanas (não 1 dia isolado) antes de voltar ao normal — ver
+# test_gerador_sintetico.py::test_estado_surto_tem_duracao_de_dias_nao_de_um_dia
+# para a verificação empírica da duração média.
+TRANSICAO_SURTO = np.array(
+    [
+        [0.97, 0.025, 0.005],  # normal -> normal / elevado / surto
+        [0.08, 0.85, 0.07],  # elevado -> normal / elevado / surto
+        [0.05, 0.15, 0.80],  # surto -> normal / elevado / surto
+    ]
+)
+
+
+def gerar_estado_surto(n_dias: int, rng: np.random.Generator) -> np.ndarray:
+    """Cadeia de Markov de 3 estados simulando surtos com duração de dias/semanas."""
+    estados = np.zeros(n_dias, dtype=int)
+    estado_atual = 0  # começa "normal"
+    for t in range(n_dias):
+        estados[t] = estado_atual
+        estado_atual = rng.choice(3, p=TRANSICAO_SURTO[estado_atual])
+    return estados
+
+
+def fator_surto(estados: np.ndarray) -> np.ndarray:
+    """Converte a sequência de estados (índices 0/1/2) no multiplicador correspondente."""
+    multiplicadores = np.array([MULTIPLICADOR_SURTO[estado] for estado in ESTADOS_SURTO])
+    return multiplicadores[estados]
+
+
+# ---------------------------------------------------------------------------
 # 2. Consumo diário (contrato 1.1)
 # ---------------------------------------------------------------------------
 
@@ -140,15 +195,25 @@ def gerar_consumo_diario(externos: pd.DataFrame, medicamentos_ref: pd.DataFrame,
     fator_clima = 1.0 + 0.12 * temp_norm.clip(-2, 2) + 0.05 * chuva_norm.clip(-2, 2)
     fator_dengue = 1.0 + 0.15 * dengue_norm.clip(-2, 3)
 
+    # Estados latentes persistentes de surto (Issue #58) — um processo por
+    # categoria sensível, compartilhado entre os medicamentos daquela
+    # categoria (um surto respiratório de verdade afeta vários medicamentos
+    # ao mesmo tempo, não um só). Seeds próprias, fora da faixa usada pelos
+    # medicamentos individuais (SEED + i) e pelas demais etapas do gerador.
+    estado_surto_respiratorio = gerar_estado_surto(n_dias, np.random.default_rng(SEED + 9000))
+    estado_surto_dengue = gerar_estado_surto(n_dias, np.random.default_rng(SEED + 9001))
+    fator_surto_respiratorio = fator_surto(estado_surto_respiratorio)
+    fator_surto_dengue = fator_surto(estado_surto_dengue)
+
     linhas = []
     for i, item in medicamentos_ref.iterrows():
         rng_item = np.random.default_rng(SEED + i)  # série reprodutível e independente por medicamento
 
         fator = fator_dia_semana.to_numpy() * fator_feriado.to_numpy() * fator_tendencia
         if item["_sensivel_clima"]:
-            fator = fator * fator_clima.to_numpy()
+            fator = fator * fator_clima.to_numpy() * fator_surto_respiratorio
         if item["_sensivel_dengue"]:
-            fator = fator * fator_dengue.to_numpy()
+            fator = fator * fator_dengue.to_numpy() * fator_surto_dengue
 
         media = item["_consumo_base_dia"] * fator
         # Ruído multiplicativo (log-normal) + Poisson para manter valores inteiros plausíveis
