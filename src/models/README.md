@@ -129,19 +129,19 @@ temporal sem vazamento): melhor config agora é `max_depth=7,
 learning_rate=0.1, n_estimators=500` (só a profundidade mudou).
 
 **Resultado de precisão** ([`docs/arquitetura/RESULTADOS_MODELAGEM.md`](../../docs/arquitetura/RESULTADOS_MODELAGEM.md),
-gerado por `python scripts/relatorio_final.py`): MAE agregado de **14,69**
-unidades/dia, **5,3%** menor que o baseline (15,52), vencendo em 11 dos 20
+gerado por `python scripts/relatorio_final.py`): MAE agregado de **14,15**
+unidades/dia, **8,8%** menor que o baseline (15,52), vencendo em **16 dos 20**
 medicamentos. O MAE absoluto **não é comparável** ao de antes dessas 4
 issues (era ~9-10) — o dataset ficou estruturalmente mais variável (surtos,
 demanda censurada), então um MAE maior aqui não é o modelo piorando, é o
 problema ficando mais difícil e mais realista.
 
-**Achado importante, e não muito intuitivo — reportado sem filtro:** apesar
-do MAE ter melhorado (5,3% de redução), a
-simulação de impacto operacional
+**Achado da rodada anterior — ainda parcialmente relevante:** com o MAE
+melhor, a simulação de impacto operacional
 ([`docs/arquitetura/RESULTADOS_IMPACTO_SIMULADO.md`](../../docs/arquitetura/RESULTADOS_IMPACTO_SIMULADO.md))
-piorou: o modelo de ML gerou **mais** episódios de ruptura e **mais** custo de
-compra emergencial que o baseline no trimestre simulado. Isso é
+mostra o modelo de ML gerando mais episódios de ruptura que o baseline no
+trimestre simulado, embora o custo agregado tenha ficado praticamente
+empatado nesta rodada (com dados corrigidos — ver Issue #75 abaixo). Isso é
 contraintuitivo (\"o modelo prevê melhor em média, mas causa mais falta na
 prática\"), mas tem uma explicação plausível: **MAE mede erro médio ao longo
 de todos os dias, mas ruptura é causada especificamente por
@@ -150,11 +150,46 @@ ainda assim errar mais nos poucos dias que realmente importam para o
 motor de recomendação (subestimar demanda de surto = estoque insuficiente =
 ruptura), porque otimizar MAE não é a mesma coisa que otimizar para não
 faltar estoque — esses dois objetivos podem divergir, e aqui parecem estar
-divergindo. Isso sugere que o próximo passo de melhoria não é mais tuning de
-MAE, e sim: (a) uma função de perda assimétrica que penalize subestimar mais
-que superestimar, ou (b) validar/tunar o modelo diretamente contra a métrica
-de impacto (custo simulado), não contra o MAE. Nenhuma das duas foi feita
-ainda.
+divergindo. As Issues #76-#78 (diagnóstico por medicamento/mês, objetivo
+operacional formal, treino com perda assimétrica) foram abertas
+especificamente para investigar e endereçar isso.
+
+### Reprodutibilidade da avaliação (Issue #75)
+
+Duas execuções da avaliação, no mesmo commit e mesmo ambiente, chegavam a
+contar números diferentes de "medicamento vencedor" (uma vez 14, outra 11,
+outra 16, dependendo de quem/quando rodava). Causa raiz identificada e
+corrigida:
+
+1. **`n_jobs=-1` não é reprodutível entre máquinas.** XGBoost com
+   `tree_method="hist"` (o padrão) não é invariante ao número de threads
+   mesmo com `random_state` fixo — verificamos empiricamente que treinar o
+   mesmo modelo, no mesmo dado, com `n_jobs=-1` vs. `n_jobs=1` produzia
+   previsões divergindo em ~60 unidades. Como `n_jobs=-1` usa "todos os
+   núcleos disponíveis", máquinas diferentes (números de núcleos diferentes)
+   literalmente treinam modelos diferentes. Corrigido: `n_jobs=1` fixo em
+   `HIPERPARAMETROS_XGBOOST`. Mais lento (~2x por treino), mas garantidamente
+   igual em qualquer máquina — verificamos rodando `scripts/relatorio_final.py`
+   duas vezes seguidas e comparando os relatórios gerados: **byte a byte
+   idênticos**.
+2. **A contagem de "vencedores" era só inferida do texto/tabela por quem
+   lia o relatório, nunca calculada e citada automaticamente** — isso é o
+   que permitiu a divergência (14 vs. 11 vs. 16) passar despercebida por um
+   tempo. Corrigido: `contar_vencedores()` em `comparar_modelos.py` deriva a
+   contagem da própria tabela de métricas, e o texto do relatório cita esse
+   valor diretamente — nunca mais escrito à mão. Coberto por teste
+   (`tests/test_comparar_modelos.py`).
+3. **Hiperparâmetros duplicados** entre `modelo_demanda.py` (código) e o
+   texto de `comparar_modelos.py` (string solta) — já tinham ficado
+   desatualizados 2 vezes neste projeto. Corrigido: `HIPERPARAMETROS_XGBOOST`
+   é agora a única fonte, importada por quem precisar descrever os
+   hiperparâmetros.
+4. O relatório agora também registra **hash SHA256 do dataset avaliado** e
+   **versões de Python/pandas/numpy/scikit-learn/xgboost**, para dois
+   relatórios só serem comparáveis se vieram do mesmo dado e do mesmo
+   ambiente — `requirements.txt` também foi fixado com versões exatas (antes
+   estava sem pin, e listava `prophet`, que nunca chegou a ser usado no
+   código).
 
 **Comando único para reproduzir os dois relatórios acima com o modelo
 oficial retreinado:** `python scripts/relatorio_final.py` (ver
