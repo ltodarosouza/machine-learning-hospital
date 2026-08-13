@@ -53,3 +53,13 @@ python src/evaluation/relatorio_operacional.py
 Gera [`docs/arquitetura/RESULTADOS_OPERACIONAL_POR_MEDICAMENTO.md`](../../docs/arquitetura/RESULTADOS_OPERACIONAL_POR_MEDICAMENTO.md), com uma tabela detalhada por mês/medicamento e um destaque separado dos medicamentos que mais pioram e mais melhoram no consolidado (soma da diferença ML − baseline em custo de compra emergencial, episódios de ruptura e unidades vencidas) — para transformar "o agregado piorou" em "estes N medicamentos, nestes meses, respondem pela piora", que é o que orienta a Issue #79 (calibração de política de estoque).
 
 `vies` é o erro médio com sinal (previsto − real): negativo indica subestimação sistemática (o tipo de erro que causa ruptura), positivo indica superestimação sistemática (o tipo que causa compra/vencimento em excesso). `unidades_subestimadas` e `unidades_superestimadas` decompõem o erro absoluto total na direção em que ele ocorreu — um MAE parecido entre baseline e modelo pode esconder uma mudança de direção do erro, por isso as duas colunas nunca são resumidas só no MAE agregado.
+
+## `avaliacao_previsao_assimetrica.py` (Issue #78) — pronto
+
+Testa se penalizar mais a subestimação de demanda (regressão quantílica do XGBoost, `src/models/modelo_demanda_assimetrico.py`, `quantile_alpha > 0.5`) reduz rupturas nos picos, mantendo a política de estoque/compra inalterada. Roda baseline, modelo atual e os candidatos quantílicos nas mesmas quatro janelas oficiais do protocolo da Issue #77 (`gerar_janelas_backtest`) e usa a mesma função `avaliar_aprovacao` para decidir — sem inventar critério novo.
+
+```bash
+python src/evaluation/avaliacao_previsao_assimetrica.py
+```
+
+Gera [`docs/avaliacao/RESULTADOS_PREVISAO_ASSIMETRICA.md`](../../docs/avaliacao/RESULTADOS_PREVISAO_ASSIMETRICA.md), com métricas por janela e candidato, decomposição de ganhos/perdas por medicamento (sem esconder onde o candidato perde) e duas decisões por candidato: **vs. baseline** (vocabulário literal do protocolo) e **vs. modelo atual** (pergunta operacional — só ela decide se algum candidato substituiria o XGBoost simétrico em produção). Se nenhum candidato for aprovado contra o modelo atual, o relatório recomenda explicitamente mantê-lo (critério de aceite da Issue #78).
