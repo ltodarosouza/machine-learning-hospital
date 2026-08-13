@@ -191,12 +191,12 @@ corrigida:
    estava sem pin, e listava `prophet`, que nunca chegou a ser usado no
    código).
 
-**Comando único para reproduzir os dois relatórios acima com o modelo
+**Comando único para reproduzir os três relatórios de avaliação com o modelo
 oficial retreinado:** `python scripts/relatorio_final.py` (ver
 [`scripts/relatorio_final.py`](../../scripts/relatorio_final.py) — treina o
-modelo, gera o relatório de precisão e o de impacto simulado numa execução
-só; `--regenerar-dados` reconstrói o dataset antes; `--abrir-dashboard` abre
-o Streamlit ao final).
+modelo, gera os relatórios de precisão, impacto simulado e detalhamento por
+medicamento/mês numa execução só; `--regenerar-dados` reconstrói o dataset
+antes; `--abrir-dashboard` abre o Streamlit ao final).
 
 **Tamanho do dataset, para contexto:** 1.461 dias (4 anos) × 20 medicamentos =
 29.220 linhas brutas; depois do "aquecimento" das médias móveis de 30 dias,

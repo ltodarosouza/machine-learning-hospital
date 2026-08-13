@@ -162,9 +162,9 @@ hiperparâmetros e identificadores das políticas/modelos. Nenhum total ou statu
 - Dados e preços do MVP são sintéticos/de referência.
 - Quatro janelas detectam inconsistência grosseira, mas não substituem validação
   retrospectiva longa ou piloto hospitalar.
-- A Issue #76 ainda não está implementada na branch desta Issue. Portanto, o
-  protocolo aceita uma tabela estável por janela, mas ainda não oferece a
-  decomposição por medicamento, mês e tipo de erro.
+- A decisão deste protocolo é consolidada por janela. A decomposição
+  complementar por medicamento, mês e tipo de erro está disponível no
+  relatório operacional da Issue #76.
 
 ## 12. Extensibilidade e versionamento
 

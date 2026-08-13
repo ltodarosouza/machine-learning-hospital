@@ -4,8 +4,8 @@
 
 ## Metadados da execução
 
-- **commit:** `21aac91`
-- **hash_codigo_protocolo:** `cd5a0dbc`
+- **commit:** `1fae470`
+- **hash_codigo_protocolo:** `f80458af`
 - **hash_consumo_diario:** `15afaef5`
 - **hash_consumo_medicamentos:** `3043fd82`
 - **hash_executor_protocolo:** `d08bd65d`
@@ -86,4 +86,4 @@
 
 - Resultados operacionais dependem das hipóteses do simulador e não substituem piloto real.
 - Os dados do MVP são sintéticos; preços são referências para comparação relativa.
-- A Issue #76 ainda não está integrada; este relatório não oferece diagnóstico por medicamento e mês.
+- O diagnóstico detalhado por medicamento e mês é complementar e está disponível no relatório operacional da Issue #76.

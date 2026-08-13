@@ -324,7 +324,7 @@ def test_relatorio_reconcilia_decisao_e_inclui_ressalva_financeira() -> None:
     assert (
         json.dumps(decisao, ensure_ascii=False, sort_keys=True, indent=2) in relatorio
     )
-    assert "Issue #76 ainda não está integrada" in relatorio
+    assert "relatório operacional da Issue #76" in relatorio
 
 
 def test_candidato_invalido_retorna_dados_insuficientes_sem_excecao() -> None:

@@ -1,8 +1,9 @@
 """Comando único: retreina o modelo oficial e gera, numa só execução, os
-dois relatórios que importam para decidir se o modelo está ajudando —
-precisão (MAE/MAPE, baseline vs. XGBoost) e impacto operacional simulado
-(ruptura, compras emergenciais, economia em R$). Opcionalmente abre o
-dashboard ao final.
+três relatórios que importam para decidir se o modelo está ajudando —
+precisão (MAE/MAPE, baseline vs. XGBoost), impacto operacional simulado
+(ruptura, compras emergenciais, economia em R$) e a decomposição desse
+impacto por medicamento e mês (Issue #76). Opcionalmente abre o dashboard
+ao final.
 
     python scripts/relatorio_final.py
     python scripts/relatorio_final.py --regenerar-dados
@@ -14,7 +15,7 @@ refletiam o mesmo código/dataset no momento em que alguém olhava os
 relatórios (foi exatamente o que gerou o problema da Issue #54, e quase
 gerou confusão de novo quando o time regenerou o dataset 4 vezes seguidas
 sem re-treinar o modelo). Este script existe para isso não acontecer de
-novo: um comando, os dois relatórios sempre do mesmo estado do repositório.
+novo: um comando, os relatórios sempre do mesmo estado do repositório.
 """
 
 from __future__ import annotations
@@ -32,6 +33,8 @@ sys.path.insert(0, str(REPO))
 from scripts.rodar_pipeline_completo import executar_pipeline
 from src.evaluation import comparar_modelos
 from src.evaluation.impacto_simulado import gerar_relatorio_trimestral, simular_periodo
+from src.evaluation.relatorio_operacional import gerar_detalhamento, gerar_relatorio_markdown as gerar_relatorio_operacional_markdown
+from src.evaluation.relatorio_operacional import SAIDA_RELATORIO as CAMINHO_RELATORIO_OPERACIONAL
 from src.utils.config import PERIODO_FIM
 
 CAMINHO_RELATORIO_IMPACTO = REPO / "docs" / "arquitetura" / "RESULTADOS_IMPACTO_SIMULADO.md"
@@ -73,6 +76,19 @@ def gerar_relatorio_impacto() -> str:
     return relatorio
 
 
+def gerar_relatorio_operacional() -> str:
+    """Gera o relatório por medicamento e mês (Issue #76), mesmo recorte de 3 meses."""
+    dados = pd.read_csv(ARQUIVO_CONSUMO_MEDICAMENTOS)
+    estoque = pd.read_csv(ARQUIVO_CONSUMO_DIARIO)
+    estoque["data"] = pd.to_datetime(estoque["data"])
+    referencia = pd.read_csv(ARQUIVO_MEDICAMENTOS_REF)
+    limites = _limites_dos_ultimos_meses(PERIODO_FIM)
+    detalhamento = gerar_detalhamento(dados, estoque, referencia, limites)
+    relatorio = gerar_relatorio_operacional_markdown(detalhamento)
+    CAMINHO_RELATORIO_OPERACIONAL.write_text(relatorio, encoding="utf-8")
+    return relatorio
+
+
 def _argumentos() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Retreina o modelo e gera os relatórios de precisão e impacto.")
     parser.add_argument(
@@ -100,22 +116,30 @@ def main() -> None:
     )
 
     print("\n" + "=" * 70)
-    print("ETAPA 2/3 — Relatório de precisão (baseline vs. modelo de ML)")
+    print("ETAPA 2/4 — Relatório de precisão (baseline vs. modelo de ML)")
     print("=" * 70)
     comparar_modelos.main()
 
     print("\n" + "=" * 70)
-    print("ETAPA 3/3 — Relatório de impacto simulado (ruptura, compras emergenciais, economia)")
+    print("ETAPA 3/4 — Relatório de impacto simulado (ruptura, compras emergenciais, economia)")
     print("=" * 70)
     relatorio_impacto = gerar_relatorio_impacto()
     print(relatorio_impacto)
     print(f"Relatório salvo em: {CAMINHO_RELATORIO_IMPACTO}")
 
     print("\n" + "=" * 70)
+    print("ETAPA 4/4 — Relatório operacional por medicamento e mês")
+    print("=" * 70)
+    relatorio_operacional = gerar_relatorio_operacional()
+    print(relatorio_operacional)
+    print(f"Relatório salvo em: {CAMINHO_RELATORIO_OPERACIONAL}")
+
+    print("\n" + "=" * 70)
     print("CONCLUÍDO")
     print("=" * 70)
-    print(f"- Precisão: {comparar_modelos.SAIDA_METRICAS.relative_to(REPO)}")
-    print(f"- Impacto:  {CAMINHO_RELATORIO_IMPACTO.relative_to(REPO)}")
+    print(f"- Precisão:   {comparar_modelos.SAIDA_METRICAS.relative_to(REPO)}")
+    print(f"- Impacto:    {CAMINHO_RELATORIO_IMPACTO.relative_to(REPO)}")
+    print(f"- Operacional: {CAMINHO_RELATORIO_OPERACIONAL.relative_to(REPO)}")
 
     if args.abrir_dashboard:
         print("\nAbrindo dashboard em http://localhost:8501 ...")

@@ -489,7 +489,7 @@ def gerar_relatorio_validacao(
         "",
         "- Resultados operacionais dependem das hipóteses do simulador e não substituem piloto real.",
         "- Os dados do MVP são sintéticos; preços são referências para comparação relativa.",
-        "- A Issue #76 ainda não está integrada; este relatório não oferece diagnóstico por medicamento e mês.",
+        "- O diagnóstico detalhado por medicamento e mês é complementar e está disponível no relatório operacional da Issue #76.",
     ]
     return "\n".join(linhas) + "\n"
 
