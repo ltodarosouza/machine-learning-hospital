@@ -119,7 +119,15 @@ Esse comando pressupõe que o artefato já foi gerado pelo pipeline completo ou
 por `python src/models/modelo_demanda.py`. Depois, acesse
 `http://localhost:8501` no navegador.
 
-Para reproduzir a comparação entre baseline e modelo:
+Para retreinar o modelo oficial e gerar os relatórios de precisão e de impacto simulado numa única execução:
+
+```bash
+python scripts/relatorio_final.py                  # usa os dados já processados
+python scripts/relatorio_final.py --regenerar-dados # reconstrói o dataset primeiro
+python scripts/relatorio_final.py --abrir-dashboard # ao final, abre o Streamlit
+```
+
+Para rodar só a comparação entre baseline e modelo (sem retreinar nem gerar o relatório de impacto):
 
 ```bash
 python src/evaluation/comparar_modelos.py
@@ -127,14 +135,16 @@ python src/evaluation/comparar_modelos.py
 
 ## Resultado da modelagem
 
-Na avaliação atual, realizada em quatro janelas de sete dias entre 2025-12-04 e 2025-12-31:
+Na avaliação atual (dataset com estados latentes de surto, causalidade de atendimentos, censura de demanda por ruptura e ruído autocorrelacionado por medicamento — Issues #58-#61 —, modelo retunado):
 
-- baseline: MAE de 9,60 unidades/dia;
-- XGBoost: MAE de 9,47 unidades/dia;
-- redução do MAE: 1,3% frente ao baseline;
-- o modelo venceu o baseline em 13 dos 20 medicamentos.
+- baseline: MAE de 15,52 unidades/dia;
+- XGBoost: MAE de 14,22 unidades/dia;
+- redução do MAE: 8,4% frente ao baseline;
+- o modelo venceu o baseline em 14 dos 20 medicamentos.
 
 O relatório reproduzível completo está em [docs/arquitetura/RESULTADOS_MODELAGEM.md](docs/arquitetura/RESULTADOS_MODELAGEM.md).
+
+**Achado importante:** apesar do MAE menor, a simulação de impacto operacional ([docs/arquitetura/RESULTADOS_IMPACTO_SIMULADO.md](docs/arquitetura/RESULTADOS_IMPACTO_SIMULADO.md)) mostra o modelo de ML gerando **mais** rupturas e custo de compra emergencial que o baseline no trimestre simulado. Hipótese e próximos passos documentados em [src/models/README.md](src/models/README.md) — reportado sem filtro, é um resultado real que ainda precisa de investigação antes de qualquer conclusão de que o modelo está pronto para uso.
 
 ## Estrutura efetiva atual
 

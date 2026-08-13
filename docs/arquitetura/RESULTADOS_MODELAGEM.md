@@ -8,40 +8,40 @@ Dataset de treino/teste: `data/processed/consumo_medicamentos.csv`, período 202
 
 | Método | MAE (unidades/dia) | MAPE (%) |
 |---|---|---|
-| Baseline (média móvel) | 10.62 | 19.2% |
-| Modelo de ML | 10.42 | 19.1% |
+| Baseline (média móvel) | 15.52 | 22.7% |
+| Modelo de ML | 14.22 | 23.2% |
 
-**O modelo de ML reduziu o erro (MAE) em 1.9% frente ao baseline.**
+**O modelo de ML reduziu o erro (MAE) em 8.4% frente ao baseline.**
 
 ## Detalhamento por medicamento
 
 | Medicamento | MAE baseline | MAE modelo | MAPE baseline | MAPE modelo | Modelo venceu? |
 |---|---|---|---|---|---|
-| adrenalina_inj | 2.02 | 2.27 | 41.9% | 45.6% | Não |
-| amoxicilina | 7.60 | 7.88 | 16.0% | 16.0% | Não |
-| azitromicina | 6.83 | 7.00 | 14.8% | 14.8% | Não |
-| ceftriaxona_inj | 6.63 | 6.30 | 17.4% | 16.0% | Sim |
-| diazepam | 3.66 | 3.74 | 23.1% | 23.6% | Não |
-| diclofenaco | 11.95 | 11.80 | 21.3% | 21.2% | Sim |
-| dipirona | 27.54 | 25.01 | 11.1% | 10.1% | Sim |
-| hidrocortisona_inj | 5.72 | 5.41 | 19.3% | 18.4% | Sim |
-| ibuprofeno | 11.81 | 12.12 | 12.2% | 12.7% | Não |
-| loratadina | 8.09 | 7.71 | 23.7% | 21.4% | Sim |
-| metoclopramida | 7.84 | 7.89 | 17.7% | 18.2% | Não |
-| omeprazol_inj | 7.44 | 7.36 | 21.6% | 21.5% | Sim |
-| ondansetrona | 6.86 | 7.55 | 19.5% | 22.9% | Não |
-| paracetamol | 24.95 | 23.66 | 13.1% | 12.4% | Sim |
-| predinisolona | 10.69 | 9.66 | 21.8% | 18.7% | Sim |
-| salbutamol | 16.27 | 16.16 | 22.1% | 21.4% | Sim |
-| soro_antitermico_infantil | 15.70 | 13.33 | 26.0% | 21.4% | Sim |
-| soro_fisiologico | 18.35 | 19.98 | 12.8% | 14.6% | Não |
-| soro_ringer | 9.06 | 9.97 | 12.6% | 13.8% | Não |
-| tramadol | 3.45 | 3.51 | 16.3% | 17.1% | Não |
+| adrenalina_inj | 2.16 | 3.15 | 51.9% | 100.9% | Não |
+| amoxicilina | 13.06 | 12.22 | 19.3% | 16.9% | Sim |
+| azitromicina | 9.21 | 9.10 | 17.4% | 16.4% | Sim |
+| ceftriaxona_inj | 10.18 | 7.15 | 21.3% | 14.5% | Sim |
+| diazepam | 4.06 | 4.64 | 23.8% | 26.8% | Não |
+| diclofenaco | 8.85 | 6.76 | 11.6% | 8.8% | Sim |
+| dipirona | 51.11 | 42.34 | 15.5% | 13.1% | Sim |
+| hidrocortisona_inj | 9.04 | 8.23 | 25.5% | 22.3% | Sim |
+| ibuprofeno | 14.09 | 13.96 | 11.9% | 11.8% | Sim |
+| loratadina | 13.53 | 11.42 | 36.0% | 25.2% | Sim |
+| metoclopramida | 8.68 | 10.15 | 16.9% | 19.4% | Não |
+| omeprazol_inj | 8.23 | 7.96 | 18.7% | 17.2% | Sim |
+| ondansetrona | 7.06 | 7.98 | 20.1% | 23.3% | Não |
+| paracetamol | 43.80 | 41.54 | 19.7% | 17.8% | Sim |
+| predinisolona | 16.16 | 15.52 | 26.8% | 23.8% | Sim |
+| salbutamol | 24.02 | 21.19 | 25.6% | 21.0% | Sim |
+| soro_antitermico_infantil | 23.01 | 22.05 | 33.0% | 29.8% | Sim |
+| soro_fisiologico | 21.44 | 19.32 | 13.2% | 11.9% | Sim |
+| soro_ringer | 16.11 | 13.71 | 21.1% | 18.6% | Sim |
+| tramadol | 6.63 | 5.92 | 25.1% | 24.6% | Sim |
 
 ## Reprodutibilidade
 
-- **Commit:** `d893bf3`
+- **Commit:** `5b7f206`
 - **Período avaliado:** 2025-12-04 a 2025-12-31 (dataset completo: 2022-01-01 a 2025-12-31)
 - **Baseline:** média móvel de 14 dias (`src/models/baseline.py::prever_baseline`)
-- **Modelo de ML:** XGBoost (`XGBRegressor`, `max_depth=5, learning_rate=0.1, n_estimators=500, subsample=0.8, colsample_bytree=0.8`, `random_state=42`) — ver `src/models/modelo_demanda.py::treinar_modelo`
+- **Modelo de ML:** XGBoost (`XGBRegressor`, `max_depth=7, learning_rate=0.1, n_estimators=500, subsample=0.8, colsample_bytree=0.8`, `random_state=42`) — ver `src/models/modelo_demanda.py::treinar_modelo`
 - **Comando para regenerar este relatório:** `python src/evaluation/comparar_modelos.py`

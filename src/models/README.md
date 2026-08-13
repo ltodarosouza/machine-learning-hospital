@@ -117,40 +117,52 @@ valores de consumo **das mesmas datas de calendário mudam** entre a versão de
 entre si, só os valores absolutos de MAE **dentro** da mesma versão de dataset
 + features.
 
-**Resultado da avaliação atual** (dataset de 4 anos com os estados latentes de
-surto da Issue #58, features com normalização causal, XGBoost retunado),
-documentado em [`docs/arquitetura/RESULTADOS_MODELAGEM.md`](../../docs/arquitetura/RESULTADOS_MODELAGEM.md):
-MAE agregado de **10.42** unidades/dia, **1.9%** menor que o baseline (10.62),
-vencendo em 10 dos 20 medicamentos. É uma vantagem modesta — reportado sem
-maquiagem, como todo o resto desta avaliação.
+### Rodada de retuning pós #58-#61 (todas as 4 issues de realismo do gerador já prontas)
 
-**Por que o ganho é modesto — e o que fazer a respeito:** análise técnica do
-time identificou que o gerador sintético atual (`gerar_dataset_sintetico.py`)
-não tem fatores latentes persistentes além dos sinais externos diários —
-consumo é `média_base(covariáveis) × ruído i.i.d.`, então o previsor
-teoricamente ótimo já é a própria média-base, que uma média móvel simples
-consegue aproximar quase tão bem quanto um modelo de ML. Mais tuning não
-resolve isso; é uma limitação estrutural do dado, não do modelo. Quatro
-issues abrem o caminho para corrigir isso, mexendo no gerador (não no
-modelo): **#58** (estados latentes de surto com duração — ✅ feita,
-`gerar_estado_surto`/`fator_surto` em `gerar_dataset_sintetico.py`, episódios
-de ~14 dias em média em vez de ruído por dia), **#59** (corrige causalidade
-invertida de `atendimentos_ps`), **#60** (separa demanda latente de
-dispensação observada em rupturas) e **#61** (classes de persistência por
-medicamento, ruído autocorrelacionado — ✅ feita, `gerar_ruido_ar1` em
-`gerar_dataset_sintetico.py`, cada medicamento com um perfil contínuo/
-intermitente/errático em vez do mesmo ruído i.i.d. para todos).
+Depois que #58, #59, #60 e #61 mudaram a estrutura do gerador sintético
+(estados latentes de surto, causalidade dos atendimentos, censura de demanda
+por ruptura, ruído autocorrelacionado por medicamento), os hiperparâmetros
+antigos (`max_depth=5`) ficaram desatualizados — foram escolhidos para um
+processo gerador bem mais simples. Retunamos de novo
+(`scripts/tuning_xgboost.py`, 18 combinações, mesma metodologia de validação
+temporal sem vazamento): melhor config agora é `max_depth=7,
+learning_rate=0.1, n_estimators=500` (só a profundidade mudou).
 
-**Atenção:** as Issues #58 e #61 já foram feitas, e cada uma regenerou o
-dataset de novo (mesma seed, lógica de geração diferente). A comparação de
-baseline contra XGBoost em `docs/arquitetura/RESULTADOS_MODELAGEM.md` foi
-reexecutada depois da #58, mas **ainda não depois da #61** — os números lá
-podem estar levemente desatualizados agora. As tabelas de comparação de
-algoritmos e tuning mais acima nesta seção refletem uma versão ainda mais
-antiga do dataset (antes de #58 e #61). Ficam pendentes as issues #59 e #60;
-depois delas (ou já agora, se alguém quiser adiantar), vale reabrir
-`scripts/comparar_algoritmos_modelo.py` + `src/evaluation/comparar_modelos.py`
-para medir o efeito combinado com números atualizados.
+**Resultado de precisão** ([`docs/arquitetura/RESULTADOS_MODELAGEM.md`](../../docs/arquitetura/RESULTADOS_MODELAGEM.md),
+gerado por `python scripts/relatorio_final.py`): MAE agregado de **14.22**
+unidades/dia, **8.4%** menor que o baseline (15.52), vencendo em 14 dos 20
+medicamentos. O MAE absoluto **não é comparável** ao de antes dessas 4
+issues (era ~9-10) — o dataset ficou estruturalmente mais variável (surtos,
+demanda censurada), então um MAE maior aqui não é o modelo piorando, é o
+problema ficando mais difícil e mais realista.
+
+**Achado importante, e não muito intuitivo — reportado sem filtro:** apesar
+do MAE ter melhorado (8.4% de redução, a maior desde o início do projeto), a
+simulação de impacto operacional
+([`docs/arquitetura/RESULTADOS_IMPACTO_SIMULADO.md`](../../docs/arquitetura/RESULTADOS_IMPACTO_SIMULADO.md))
+piorou: o modelo de ML gerou **mais** episódios de ruptura e **mais** custo de
+compra emergencial que o baseline no trimestre simulado — uma piora maior,
+inclusive, do que a medida antes desta rodada de retuning. Isso é
+contraintuitivo (\"o modelo prevê melhor em média, mas causa mais falta na
+prática\"), mas tem uma explicação plausível: **MAE mede erro médio ao longo
+de todos os dias, mas ruptura é causada especificamente por
+subestimar picos** (dias de surto). Um modelo pode ter erro médio menor e
+ainda assim errar mais nos poucos dias que realmente importam para o
+motor de recomendação (subestimar demanda de surto = estoque insuficiente =
+ruptura), porque otimizar MAE não é a mesma coisa que otimizar para não
+faltar estoque — esses dois objetivos podem divergir, e aqui parecem estar
+divergindo. Isso sugere que o próximo passo de melhoria não é mais tuning de
+MAE, e sim: (a) uma função de perda assimétrica que penalize subestimar mais
+que superestimar, ou (b) validar/tunar o modelo diretamente contra a métrica
+de impacto (custo simulado), não contra o MAE. Nenhuma das duas foi feita
+ainda.
+
+**Comando único para reproduzir os dois relatórios acima com o modelo
+oficial retreinado:** `python scripts/relatorio_final.py` (ver
+[`scripts/relatorio_final.py`](../../scripts/relatorio_final.py) — treina o
+modelo, gera o relatório de precisão e o de impacto simulado numa execução
+só; `--regenerar-dados` reconstrói o dataset antes; `--abrir-dashboard` abre
+o Streamlit ao final).
 
 **Tamanho do dataset, para contexto:** 1.461 dias (4 anos) × 20 medicamentos =
 29.220 linhas brutas; depois do "aquecimento" das médias móveis de 30 dias,
