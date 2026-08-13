@@ -64,6 +64,8 @@ Compra recomendada = demanda prevista + estoque de segurança − estoque dispon
 
 Evitar afirmações genéricas não verificáveis como "hospitais perdem 10% do estoque" ou "R$ 1 bilhão perdido por vencimento". Tratar como **cenários hipotéticos**, com fonte e escopo explícitos. Exemplo de framing seguro:
 
+Tabela detalhada com premissas, fontes e validação pendente: [`CENARIOS_IMPACTO.md`](CENARIOS_IMPACTO.md).
+
 | Cenário | Perda evitável | Redução pela solução | Economia (hospital com R$10mi/ano em medicamentos) |
 |---|---|---|---|
 | Conservador | 2% | 20% | R$ 40 mil |
