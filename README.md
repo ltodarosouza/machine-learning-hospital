@@ -138,9 +138,9 @@ python src/evaluation/comparar_modelos.py
 Na avaliação atual (dataset com estados latentes de surto, causalidade de atendimentos, censura de demanda por ruptura e ruído autocorrelacionado por medicamento — Issues #58-#61 —, modelo retunado):
 
 - baseline: MAE de 15,52 unidades/dia;
-- XGBoost: MAE de 14,22 unidades/dia;
-- redução do MAE: 8,4% frente ao baseline;
-- o modelo venceu o baseline em 14 dos 20 medicamentos.
+- XGBoost: MAE de 14,69 unidades/dia;
+- redução do MAE: 5,3% frente ao baseline;
+- o modelo venceu o baseline em 11 dos 20 medicamentos.
 
 O relatório reproduzível completo está em [docs/arquitetura/RESULTADOS_MODELAGEM.md](docs/arquitetura/RESULTADOS_MODELAGEM.md).
 

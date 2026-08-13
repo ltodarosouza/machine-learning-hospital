@@ -2,7 +2,7 @@
 
 Período simulado: outubro a dezembro de 2025, com validação temporal por janelas de 7 dias.
 
-> **Limitação:** simulação sobre dados sintéticos, não piloto hospitalar. Compras emergenciais usam o preço unitário de referência. O consumo segue FEFO; lotes com entrada posterior ao corte não vazam para o estoque inicial e reposições simuladas recebem validade de 365 dias. Como não há histórico completo de movimentação por lote, a composição dos lotes elegíveis é reescalada para bater com o estoque agregado no corte.
+> **Limitação:** simulação sobre dados sintéticos, não piloto hospitalar. Compras emergenciais usam o preço unitário de referência. O consumo segue FEFO; cada corte recebe um snapshot sintético de lotes temporalmente compatível com seu estoque agregado e reposições simuladas recebem validade de 365 dias. Como não há histórico completo de movimentação por lote, esse snapshot não reproduz os lotes físicos que existiriam no hospital.
 
 ## Resultado por mês
 

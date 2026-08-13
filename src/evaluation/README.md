@@ -14,7 +14,7 @@ python src/evaluation/comparar_modelos.py
 
 Gera [`docs/arquitetura/RESULTADOS_MODELAGEM.md`](../../docs/arquitetura/RESULTADOS_MODELAGEM.md) com o relatório completo, incluindo uma seção "Reprodutibilidade" (commit, período, algoritmo, hiperparâmetros) — regenerar sempre que o dataset ou o modelo mudarem, para o relatório nunca ficar defasado em relação ao código (Issue #54).
 
-**Resultado atual** (dataset com as 4 issues de realismo do gerador — #58-#61 — já aplicadas, modelo retunado): o modelo de ML reduz o MAE agregado em **8.4%** frente ao baseline (14.22 vs. 15.52 unidades/dia), vencendo em 14 dos 20 medicamentos. **Reportado sem maquiagem.** O MAE absoluto não é comparável a rodadas anteriores (era ~9-10) — o dataset ficou estruturalmente mais variável (surtos, demanda censurada), não é o modelo piorando.
+**Resultado atual** (dataset com as 4 issues de realismo do gerador — #58-#61 — já aplicadas, modelo retunado): o modelo de ML reduz o MAE agregado em **5,3%** frente ao baseline (14,69 vs. 15,52 unidades/dia), vencendo em 11 dos 20 medicamentos. **Reportado sem maquiagem.** O MAE absoluto não é comparável a rodadas anteriores (era ~9-10) — o dataset ficou estruturalmente mais variável (surtos, demanda censurada), não é o modelo piorando.
 
 **Achado importante:** apesar do MAE melhor, a simulação de impacto (`impacto_simulado.py`, abaixo) mostra o modelo causando **mais** ruptura que o baseline. Ver `src/models/README.md` para a hipótese de por que isso acontece (MAE não é a métrica certa para evitar ruptura) — não escondemos esse resultado, é informação real.
 

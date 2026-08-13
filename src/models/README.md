@@ -129,20 +129,19 @@ temporal sem vazamento): melhor config agora é `max_depth=7,
 learning_rate=0.1, n_estimators=500` (só a profundidade mudou).
 
 **Resultado de precisão** ([`docs/arquitetura/RESULTADOS_MODELAGEM.md`](../../docs/arquitetura/RESULTADOS_MODELAGEM.md),
-gerado por `python scripts/relatorio_final.py`): MAE agregado de **14.22**
-unidades/dia, **8.4%** menor que o baseline (15.52), vencendo em 14 dos 20
+gerado por `python scripts/relatorio_final.py`): MAE agregado de **14,69**
+unidades/dia, **5,3%** menor que o baseline (15,52), vencendo em 11 dos 20
 medicamentos. O MAE absoluto **não é comparável** ao de antes dessas 4
 issues (era ~9-10) — o dataset ficou estruturalmente mais variável (surtos,
 demanda censurada), então um MAE maior aqui não é o modelo piorando, é o
 problema ficando mais difícil e mais realista.
 
 **Achado importante, e não muito intuitivo — reportado sem filtro:** apesar
-do MAE ter melhorado (8.4% de redução, a maior desde o início do projeto), a
+do MAE ter melhorado (5,3% de redução), a
 simulação de impacto operacional
 ([`docs/arquitetura/RESULTADOS_IMPACTO_SIMULADO.md`](../../docs/arquitetura/RESULTADOS_IMPACTO_SIMULADO.md))
 piorou: o modelo de ML gerou **mais** episódios de ruptura e **mais** custo de
-compra emergencial que o baseline no trimestre simulado — uma piora maior,
-inclusive, do que a medida antes desta rodada de retuning. Isso é
+compra emergencial que o baseline no trimestre simulado. Isso é
 contraintuitivo (\"o modelo prevê melhor em média, mas causa mais falta na
 prática\"), mas tem uma explicação plausível: **MAE mede erro médio ao longo
 de todos os dias, mas ruptura é causada especificamente por
