@@ -69,23 +69,23 @@ A previsão é mantida idêntica em cada comparação. Só muda o buffer de esto
 | perfil_prazo_conservadora | soro_ringer | continuo | curto | 0.20 |
 | perfil_prazo_conservadora | tramadol | intermitente | longo | 0.50 |
 
-## Decisão no protocolo semanal v1.0.0
+## Decisão formal no protocolo v1.1.0 (janela longa)
 
-A decisão abaixo usa os mesmos quatro backtests de 7 dias da #77. A Issue #84 documenta que essa janela tem baixa sensibilidade para decisões de reposição com lead time de 5–12 dias; portanto, ela é reportada por rigor, mas não basta sozinha para promover uma política.
+A decisão abaixo usa as quatro janelas temporais de 28 dias da Issue #84. O modelo é retreinado a cada 7 dias, mas estoque e lotes não são reiniciados dentro da janela; assim o prazo de entrega de 5–12 dias pode afetar a operação avaliada. Cada política é comparada à `fixa_020` com a mesma previsão.
 
 ### Previsão: baseline
 
 | Política | Status | Redução de custo | Janelas na meta | Motivo principal |
 |---|---|---:|---:|---|
-| perfil_prazo_moderada | rejeitado | 0.0% | 0/4 | Redução agregada de custo 0.00% abaixo da meta de 10.00%.; Consistência insuficiente: meta atingida em 0/4 janelas. |
-| perfil_prazo_conservadora | rejeitado | 0.8% | 0/4 | Redução agregada de custo 0.79% abaixo da meta de 10.00%.; Consistência insuficiente: meta atingida em 0/4 janelas. |
+| perfil_prazo_moderada | rejeitado | 6.0% | 1/4 | Redução agregada de custo 6.00% abaixo da meta de 10.00%.; Consistência insuficiente: meta atingida em 1/4 janelas.; Piora operacional relevante em unidades_em_ruptura: aumento de 5.66%. |
+| perfil_prazo_conservadora | aprovado | 23.1% | 4/4 | Meta agregada de redução do custo emergencial atingida.; Meta atingida na fração mínima exigida de janelas.; Sem piora operacional relevante nas métricas de bloqueio. |
 
 ### Previsão: modelo_atual
 
 | Política | Status | Redução de custo | Janelas na meta | Motivo principal |
 |---|---|---:|---:|---|
-| perfil_prazo_moderada | rejeitado | 0.0% | 0/4 | Redução agregada de custo 0.00% abaixo da meta de 10.00%.; Consistência insuficiente: meta atingida em 0/4 janelas. |
-| perfil_prazo_conservadora | rejeitado | 0.0% | 0/4 | Redução agregada de custo 0.00% abaixo da meta de 10.00%.; Consistência insuficiente: meta atingida em 0/4 janelas. |
+| perfil_prazo_moderada | rejeitado | 6.2% | 1/4 | Redução agregada de custo 6.19% abaixo da meta de 10.00%.; Consistência insuficiente: meta atingida em 1/4 janelas.; Piora operacional relevante em unidades_em_ruptura: aumento de 7.05%. |
+| perfil_prazo_conservadora | aprovado | 25.2% | 4/4 | Meta agregada de redução do custo emergencial atingida.; Meta atingida na fração mínima exigida de janelas.; Sem piora operacional relevante nas métricas de bloqueio. |
 
 ## Simulação contínua mensal (evidência complementar)
 
@@ -127,4 +127,4 @@ Variação contra `fixa_020` do mesmo método; negativo em custo/ruptura é melh
 
 ## Limitações e próximo passo
 
-A política que parecer melhor na simulação contínua ainda não deve ser adotada como regra oficial: a #84 precisa primeiro versionar um protocolo formal com janelas longas, capaz de medir o efeito do lead time. Nenhuma política é aplicada ao dashboard ou ao motor de recomendação nesta issue.
+A aprovação valida somente o cenário simulado, não uma operação hospitalar real. Antes de adotar uma política aprovada, o time deve decidir o limite aceitável de estoque médio e validar o comportamento em piloto; nenhuma política é aplicada ao dashboard ou ao motor de recomendação nesta issue.
