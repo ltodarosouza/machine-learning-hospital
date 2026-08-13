@@ -1,0 +1,17 @@
+{
+  "aprovado": true,
+  "candidato": "quantile_080",
+  "janelas_avaliadas": 4,
+  "janelas_com_meta_atingida": 4,
+  "motivos_aprovacao": [
+    "Meta agregada de redução do custo emergencial atingida.",
+    "Meta atingida na fração mínima exigida de janelas.",
+    "Sem piora operacional relevante nas métricas de bloqueio."
+  ],
+  "motivos_rejeicao": [],
+  "reducao_custo_emergencial_pct": 37.45337480930579,
+  "status": "aprovado",
+  "variacao_episodios_ruptura_pct": -46.28099173553719,
+  "variacao_unidades_ruptura_pct": -36.82150383996141,
+  "variacao_vencimento_pct": 0.0
+}

@@ -1,0 +1,89 @@
+# Relatório de validação operacional
+
+> **Transparência financeira:** Os custos apresentados são estimativas produzidas com dados sintéticos e preços unitários de referência. Eles não representam economia financeira comprovada em uma operação hospitalar real.
+
+## Metadados da execução
+
+- **candidato_avaliado:** `quantile_080`
+- **commit:** `66eb433`
+- **dias_janela_avaliacao:** `28`
+- **hash_consumo_diario:** `49e11a5c`
+- **hash_consumo_medicamentos:** `9a043b77`
+- **hash_medicamentos_ref:** `530958a8`
+- **hiperparametros_modelo:** `{"colsample_bytree": 0.8, "learning_rate": 0.1, "max_depth": 7, "n_jobs": 1, "subsample": 0.8}`
+- **n_estimators:** `500`
+- **papel_de_baseline_nesta_decisao:** `baseline (média móvel, literal do protocolo)`
+- **passo_retreino_dias:** `7`
+- **versoes:** `{"numpy": "2.4.6", "pandas": "3.0.3", "python": "3.14.5", "scikit-learn": "1.8.0", "xgboost": "3.4.0"}`
+
+## Configuração do protocolo
+
+```json
+{
+  "aumento_relevante_maximo": 0.05,
+  "fracao_minima_janelas_com_meta": 0.75,
+  "horizonte_dias": 28,
+  "minimo_janelas": 4,
+  "reducao_minima_custo": 0.1,
+  "tolerancia_empate": 1e-09,
+  "treino_minimo_dias": 365,
+  "versao": "1.1.0-janela-longa"
+}
+```
+
+## Janelas
+
+| janela_id | inicio_treino | fim_treino | inicio_avaliacao | fim_avaliacao |
+|---|---|---|---|---|
+| janela_001 | 2022-01-01 | 2025-09-06 | 2025-09-07 | 2025-10-04 |
+| janela_002 | 2022-01-01 | 2025-10-04 | 2025-10-05 | 2025-11-01 |
+| janela_003 | 2022-01-01 | 2025-11-01 | 2025-11-02 | 2025-11-29 |
+| janela_004 | 2022-01-01 | 2025-11-29 | 2025-11-30 | 2025-12-27 |
+
+## Métricas por janela e candidato
+
+| janela_id | candidato | mae | mape | vies_previsao | subestimacao | superestimacao | custo_compras_emergenciais_reais | episodios_ruptura | unidades_em_ruptura | unidades_vencidas | quantidade_total_recomendada |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| janela_001 | baseline | 22.68176020408163 | 21.671872421385135 | -14.199107142857143 | 10326.642857142859 | 2375.142857142857 | 30758.475853336648 | 166.0 | 10645.418603880165 | 517.5186038801651 | 41106.34285714286 |
+| janela_001 | quantile_080 | 21.546806899990354 | 28.238907966887727 | 1.8707363648074014 | 5509.299749851227 | 6556.912114143372 | 15708.65504667661 | 81.0 | 5729.965408145902 | 517.5186038801651 | 48212.05254004231 |
+| janela_002 | baseline | 24.615051020408163 | 33.578032282307525 | 15.507142857142858 | 2550.214285714286 | 11234.214285714284 | 13712.63385191498 | 77.0 | 3646.3486708319842 | 271.09152797484137 | 33768.81428571428 |
+| janela_002 | quantile_080 | 30.199129148891995 | 47.69902701347055 | 27.612663321835655 | 724.2104315757751 | 16187.301891803741 | 10718.689709546115 | 44.0 | 2342.085324623139 | 271.09152797484137 | 37900.67961774554 |
+| janela_003 | baseline | 28.45063775510204 | 30.043922677419896 | -1.4919642857142856 | 8383.928571428572 | 7548.428571428571 | 20580.122783738007 | 111.0 | 8773.91451157538 | 371.81451157538095 | 35728.357142857145 |
+| janela_003 | quantile_080 | 32.6536127950464 | 42.29808847267128 | 13.86501994899341 | 5260.805996894836 | 13025.217168331146 | 15316.380599038268 | 73.0 | 7104.123946816582 | 371.81451157538095 | 37228.38587159124 |
+| janela_004 | baseline | 15.828698979591838 | 22.423443437376093 | -3.204464285714287 | 5329.285714285715 | 3534.7857142857138 | 17410.463637812 | 130.0 | 3838.3211364843332 | 66.13542219861918 | 31037.099999999995 |
+| janela_004 | quantile_080 | 15.51298828125 | 28.78675485867157 | 7.491798915181842 | 2245.9330224990845 | 6441.3404150009155 | 9833.282647058826 | 62.0 | 1821.36977387447 | 66.13542219861918 | 34520.897113255094 |
+
+## Consolidação final
+
+| candidato | mae | mape | vies_previsao | subestimacao | superestimacao | custo_compras_emergenciais_reais | episodios_ruptura | unidades_em_ruptura | unidades_vencidas | quantidade_total_recomendada |
+|---|---|---|---|---|---|---|---|---|---|---|
+| baseline | 22.894036989795918 | 26.92931770462216 | -0.8470982142857144 | 6647.517857142858 | 6173.142857142857 | 82461.69612680163 | 484.0 | 26904.002922771862 | 1226.5600656290067 | 141640.61428571428 |
+| quantile_080 | 24.978134281294686 | 36.75569457792528 | 12.710054637704577 | 3435.0623002052307 | 10552.692897319794 | 51577.00800231982 | 260.0 | 16997.544453460094 | 1226.5600656290067 | 157862.0151426342 |
+
+## Decisão final
+
+```json
+{
+  "aprovado": true,
+  "candidato": "quantile_080",
+  "janelas_avaliadas": 4,
+  "janelas_com_meta_atingida": 4,
+  "motivos_aprovacao": [
+    "Meta agregada de redução do custo emergencial atingida.",
+    "Meta atingida na fração mínima exigida de janelas.",
+    "Sem piora operacional relevante nas métricas de bloqueio."
+  ],
+  "motivos_rejeicao": [],
+  "reducao_custo_emergencial_pct": 37.45337480930579,
+  "status": "aprovado",
+  "variacao_episodios_ruptura_pct": -46.28099173553719,
+  "variacao_unidades_ruptura_pct": -36.82150383996141,
+  "variacao_vencimento_pct": 0.0
+}
+```
+
+## Limitações
+
+- Resultados operacionais dependem das hipóteses do simulador e não substituem piloto real.
+- Os dados do MVP são sintéticos; preços são referências para comparação relativa.
+- O diagnóstico detalhado por medicamento e mês é complementar e está disponível no relatório operacional da Issue #76.

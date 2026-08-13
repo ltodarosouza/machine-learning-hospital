@@ -63,3 +63,15 @@ python src/evaluation/avaliacao_previsao_assimetrica.py
 ```
 
 Gera [`docs/avaliacao/RESULTADOS_PREVISAO_ASSIMETRICA.md`](../../docs/avaliacao/RESULTADOS_PREVISAO_ASSIMETRICA.md), com métricas por janela e candidato, decomposição de ganhos/perdas por medicamento (sem esconder onde o candidato perde) e duas decisões por candidato: **vs. baseline** (vocabulário literal do protocolo) e **vs. modelo atual** (pergunta operacional — só ela decide se algum candidato substituiria o XGBoost simétrico em produção). Se nenhum candidato for aprovado contra o modelo atual, o relatório recomenda explicitamente mantê-lo (critério de aceite da Issue #78).
+
+Achado da Issue #78: a decisão formal rejeitou os dois candidatos, mas o diagnóstico mostrou que as janelas de 7 dias do protocolo são quase insensíveis a mudança de previsão (prazo de entrega mínimo de 5 dias não dá tempo do pedido chegar dentro da própria janela). Uma simulação contínua complementar (sem reset semanal de estoque) sugeriu forte economia com `quantile_080` — sinal investigado formalmente por `protocolo_janela_longa.py`, abaixo.
+
+## `protocolo_janela_longa.py` (Issue #84) — pronto
+
+Revalida `quantile_080` (o achado promissor da Issue #78) sob uma janela de avaliação de **28 dias** em vez de 7 — dá tempo real do prazo de entrega (5-12 dias) atuar dentro da própria janela, ao contrário da versão 1.0.0 do protocolo. Reaproveita `gerar_janelas_backtest`, `calcular_metricas_janela` e `avaliar_aprovacao` **sem nenhuma alteração de código** — só muda `horizonte_dias` na configuração (versão `1.1.0-janela-longa`, documentada em [`docs/avaliacao/PROTOCOLO_VALIDACAO_OPERACIONAL.md`](../../docs/avaliacao/PROTOCOLO_VALIDACAO_OPERACIONAL.md), seção 13). O modelo continua sendo retreinado a cada 7 dias dentro da janela de 28 (contrato de horizonte do MVP inalterado); só o estoque/lotes deixam de ser resetados a cada semana.
+
+```bash
+python src/evaluation/protocolo_janela_longa.py
+```
+
+Gera duas decisões auditáveis completas (`janelas.csv`, `metricas.csv`, `configuracao.json`, `decisao.json`, `RELATORIO_VALIDACAO_OPERACIONAL.md`, via `salvar_relatorio_validacao`) em `docs/avaliacao/revalidacao_janela_longa/`: `vs_baseline/` (candidato contra a média móvel) e `vs_modelo_atual/` (candidato contra o modelo em produção — a pergunta operacional real desta issue, com as métricas do modelo atual ocupando o papel de "baseline" que o protocolo exige, documentado nos metadados de cada relatório para não confundir com o baseline literal). Nenhuma decisão da versão 1.0.0 do protocolo é reescrita.
