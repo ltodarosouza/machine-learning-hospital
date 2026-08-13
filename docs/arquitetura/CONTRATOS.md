@@ -203,6 +203,7 @@ o nível intermediário.
 ## 5. Contrato de entrada de `dashboard`
 
 - Consome a saída de `recommendation` (seção 4) + série histórica de `models` (seção 3) para gráficos.
+- A aplicação carrega o artefato oficial salvo em `models_output/modelo_demanda.joblib`; não treina uma segunda configuração do modelo ao iniciar. O artefato é produzido e validado por `scripts/rodar_pipeline_completo.py`.
 - Para apresentar o resultado, o dashboard enriquece a saída do motor com `nome` e `categoria` de `medicamentos_ref.csv`. Esses dois campos pertencem ao cadastro, não à saída de `recommendation`.
 - Função do motor: `src/recommendation/motor_recomendacao.py::gerar_recomendacoes(previsoes, estoque_atual, estoque_seguranca, pedidos_pendentes, medicamentos_referencia, lotes) -> pd.DataFrame`.
 
@@ -233,3 +234,4 @@ Registrar aqui sempre que um contrato mudar depois de combinado, com data e quem
 | 2026-08-12 | Issue #59 | `atendimentos_ps`/`ocupacao_leitos_pct` passaram a ser gerados antes do consumo (a partir de clima/dengue/surto), e o consumo por medicamento passou a depender dos atendimentos — corrige a causalidade invertida que existia antes | data_ingestion, models, evaluation |
 | 2026-08-12 | Issue #60 | `consumo_unidades` foi formalizado como demanda latente. Adicionadas `dispensacao_unidades` e `demanda_nao_atendida` para tornar rupturas auditáveis, sem censurar o alvo do modelo | data_ingestion, models, evaluation |
 | 2026-08-12 | Issue #61 | Cada medicamento passou a ter um "perfil de persistência" (contínuo/intermitente/errático, derivado da categoria) que controla a memória do ruído de curto prazo (AR(1) em vez de log-normal i.i.d.). Schema não muda (`_perfil_persistencia` é interno ao gerador, não vai para `medicamentos_ref.csv`), mas os valores de `consumo_diario.csv`/`consumo_medicamentos.csv`/`lotes.csv`/`pedidos_pendentes.csv` mudam de novo (mesma seed, lógica diferente) — `git pull` de novo para quem tinha o dataset local | data_ingestion, models, evaluation |
+| 2026-08-12 | Issue #25 | Formalizado o pipeline fim a fim: o dashboard passa a consumir o mesmo artefato serializado que foi treinado e validado pelo pipeline, eliminando o retreino implícito com outra configuração | models, recommendation, dashboard |

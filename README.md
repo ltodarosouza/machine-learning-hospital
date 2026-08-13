@@ -92,6 +92,17 @@ python src/data_ingestion/consolidar_dataset.py
 
 Os scripts de clima e epidemiologia acessam APIs públicas. Os arquivos gerados ficam em `data/external/` e `data/processed/`.
 
+Para executar e validar de uma vez o fluxo completo — coleta, dados sintéticos,
+features, modelo, recomendação e contrato do dashboard —, use:
+
+```bash
+python scripts/rodar_pipeline_completo.py
+```
+
+Se as APIs públicas estiverem indisponíveis, `--sem-coleta-externa` reutiliza
+os CSVs externos versionados e ainda regenera todo o dataset sintético. Para
+iniciar a interface depois da validação, acrescente `--abrir-dashboard`.
+
 Execute os testes automatizados com:
 
 ```bash
@@ -104,7 +115,9 @@ Para abrir o dashboard:
 streamlit run dashboard/app.py
 ```
 
-Depois, acesse `http://localhost:8501` no navegador.
+Esse comando pressupõe que o artefato já foi gerado pelo pipeline completo ou
+por `python src/models/modelo_demanda.py`. Depois, acesse
+`http://localhost:8501` no navegador.
 
 Para reproduzir a comparação entre baseline e modelo:
 
@@ -132,7 +145,7 @@ Além das pastas descritas acima, os scripts de experimentação e tuning ficam 
 - o hospital, o consumo, o estoque, os lotes e os pedidos são sintéticos;
 - DATASUS/OpenDataSUS ainda não está integrado ao MVP;
 - o dashboard apresenta recomendações, mas não registra a aprovação ou a realização de uma compra;
-- a avaliação de impacto financeiro e de redução de rupturas/vencimentos ainda é uma etapa futura;
+- a avaliação de impacto é uma simulação sobre dados sintéticos, não um piloto hospitalar;
 - a fonte climática é a Open-Meteo, com dados de reanálise, e não uma estação local específica.
 
 ## Observação para macOS

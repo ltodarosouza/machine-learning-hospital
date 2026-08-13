@@ -23,7 +23,10 @@ def test_carregar_dados_previsao_retorna_series_e_metricas(monkeypatch) -> None:
             }
         )
 
+    argumentos_modelo = {}
+
     def prever_modelo_falso(*args, **kwargs) -> pd.DataFrame:
+        argumentos_modelo.update(kwargs)
         return pd.DataFrame(
             {
                 "medicamento_id": "med_a",
@@ -42,3 +45,4 @@ def test_carregar_dados_previsao_retorna_series_e_metricas(monkeypatch) -> None:
     assert set(grafico["medicamento_id"]) == {"med_a"}
     assert set(metricas["metodo"]) == {"baseline", "modelo_ml"}
     assert (metricas["mae"] >= 0).all()
+    assert "n_estimators" not in argumentos_modelo
