@@ -48,7 +48,7 @@ Antes de pegar sua primeira task, leia:
 ## Stack
 
 - Python 3.11+
-- pandas, scikit-learn / Prophet (previsão de demanda)
+- pandas, scikit-learn, XGBoost (previsão de demanda)
 - Streamlit (dashboard)
 - pytest (testes)
 
@@ -135,16 +135,16 @@ python src/evaluation/comparar_modelos.py
 
 ## Resultado da modelagem
 
-Na avaliação atual (dataset com estados latentes de surto, causalidade de atendimentos, censura de demanda por ruptura e ruído autocorrelacionado por medicamento — Issues #58-#61 —, modelo retunado):
+Na avaliação atual (dataset com estados latentes de surto, causalidade de atendimentos, censura de demanda por ruptura e ruído autocorrelacionado por medicamento — Issues #58-#61 —, modelo retunado, avaliação reproduzível — Issue #75):
 
 - baseline: MAE de 15,52 unidades/dia;
-- XGBoost: MAE de 14,69 unidades/dia;
-- redução do MAE: 5,3% frente ao baseline;
-- o modelo venceu o baseline em 11 dos 20 medicamentos.
+- XGBoost: MAE de 14,15 unidades/dia;
+- redução do MAE: 8,8% frente ao baseline;
+- o modelo venceu o baseline em 16 dos 20 medicamentos.
 
-O relatório reproduzível completo está em [docs/arquitetura/RESULTADOS_MODELAGEM.md](docs/arquitetura/RESULTADOS_MODELAGEM.md).
+Esses números são **deterministicamente reprodutíveis**: duas execuções de `python scripts/relatorio_final.py`, no mesmo ambiente e com o mesmo dataset, produzem o relatório byte a byte idêntico (verificado). O relatório reproduzível completo, com commit, hash do dataset e versões do ambiente, está em [docs/arquitetura/RESULTADOS_MODELAGEM.md](docs/arquitetura/RESULTADOS_MODELAGEM.md).
 
-**Achado importante:** apesar do MAE menor, a simulação de impacto operacional ([docs/arquitetura/RESULTADOS_IMPACTO_SIMULADO.md](docs/arquitetura/RESULTADOS_IMPACTO_SIMULADO.md)) mostra o modelo de ML gerando **mais** rupturas e custo de compra emergencial que o baseline no trimestre simulado. Hipótese e próximos passos documentados em [src/models/README.md](src/models/README.md) — reportado sem filtro, é um resultado real que ainda precisa de investigação antes de qualquer conclusão de que o modelo está pronto para uso.
+**Achado importante:** apesar do MAE menor, a simulação de impacto operacional ([docs/arquitetura/RESULTADOS_IMPACTO_SIMULADO.md](docs/arquitetura/RESULTADOS_IMPACTO_SIMULADO.md)) mostra o modelo de ML gerando **mais** rupturas que o baseline no trimestre simulado (o custo agregado, por outro lado, ficou praticamente empatado). Hipótese e próximos passos documentados em [src/models/README.md](src/models/README.md) — reportado sem filtro, é um resultado real que ainda precisa de investigação antes de qualquer conclusão de que o modelo está pronto para uso.
 
 ## Estrutura efetiva atual
 

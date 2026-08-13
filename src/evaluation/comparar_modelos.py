@@ -18,6 +18,8 @@ jeito correto de simular "o que o modelo saberia prever, a cada
 momento, sem olhar o futuro".
 """
 
+import hashlib
+import platform
 import subprocess
 import sys
 from pathlib import Path
@@ -26,11 +28,13 @@ import pandas as pd
 
 sys.path.append(str(Path(__file__).resolve().parents[2]))
 from src.models.baseline import JANELA_PADRAO_DIAS, gerar_previsoes_baseline_periodo
-from src.models.modelo_demanda import avaliar_validacao_temporal
+from src.models.modelo_demanda import HIPERPARAMETROS_XGBOOST, avaliar_validacao_temporal
 from src.utils.config import HORIZONTE_PREVISAO_DIAS, PERIODO_FIM, PERIODO_INICIO
 
 DADOS_MODELAGEM = Path(__file__).resolve().parents[2] / "data" / "processed" / "consumo_medicamentos.csv"
 SAIDA_METRICAS = Path(__file__).resolve().parents[2] / "docs" / "arquitetura" / "RESULTADOS_MODELAGEM.md"
+N_ESTIMATORS_PADRAO = 500
+RANDOM_STATE_PADRAO = 42
 
 
 def avaliar_baseline_periodo(dados_brutos: pd.DataFrame, data_inicio_teste: str, data_fim_teste: str, horizonte: int = HORIZONTE_PREVISAO_DIAS) -> pd.DataFrame:
@@ -104,11 +108,64 @@ def _commit_atual() -> str:
         return "desconhecido (git indisponível no ambiente)"
 
 
+def _hash_arquivo(caminho: Path) -> str:
+    """SHA256 (8 primeiros caracteres) do CSV avaliado (Issue #75).
+
+    Garante que dois relatórios "iguais" foram gerados sobre exatamente o
+    mesmo dado, não só o mesmo código. Dataset regenerado (mesma seed, código
+    de geração diferente) muda o hash mesmo que o commit do código de
+    avaliação seja o mesmo.
+    """
+    digest = hashlib.sha256()
+    with open(caminho, "rb") as arquivo:
+        for bloco in iter(lambda: arquivo.read(65536), b""):
+            digest.update(bloco)
+    return digest.hexdigest()[:8]
+
+
+def _versoes_dependencias() -> dict[str, str]:
+    """Versões das bibliotecas que afetam o resultado numérico (Issue #75).
+
+    XGBoost e scikit-learn podem mudar o resultado do treino entre versões
+    major, mesmo com hiperparâmetros idênticos — registrar isso evita
+    comparar relatórios de ambientes diferentes como se fossem o mesmo
+    experimento.
+    """
+    import numpy
+    import pandas
+    import sklearn
+    import xgboost
+
+    return {
+        "python": platform.python_version(),
+        "pandas": pandas.__version__,
+        "numpy": numpy.__version__,
+        "scikit-learn": sklearn.__version__,
+        "xgboost": xgboost.__version__,
+    }
+
+
+def contar_vencedores(metricas: pd.DataFrame) -> tuple[int, int]:
+    """Quantos medicamentos o modelo de ML vence (MAE menor que o baseline) e o total avaliado.
+
+    Única fonte de verdade para essa contagem — o resumo do relatório e a
+    tabela por medicamento sempre derivam daqui, nunca escritos à mão. Uma
+    versão anterior deste projeto (PR #73) citou uma contagem de vencedores
+    no texto da descrição que não batia com a própria tabela do relatório
+    gerado — exatamente o que esta função existe para impedir (Issue #75).
+    """
+    detalhe = metricas[metricas["medicamento_id"] != "TODOS"]
+    pivot = detalhe.pivot(index="medicamento_id", columns="metodo", values="mae")
+    vencedores = int((pivot["modelo_ml"] < pivot["baseline"]).sum())
+    return vencedores, int(len(pivot))
+
+
 def gerar_relatorio_markdown(metricas: pd.DataFrame, data_inicio_teste: str, data_fim_teste: str) -> str:
     agregado = metricas[metricas["medicamento_id"] == "TODOS"].set_index("metodo")
     mae_baseline = agregado.loc["baseline", "mae"]
     mae_modelo = agregado.loc["modelo_ml", "mae"]
     reducao_pct = (1 - mae_modelo / mae_baseline) * 100 if mae_baseline > 0 else float("nan")
+    n_vencedores, n_total = contar_vencedores(metricas)
 
     linhas = [
         "# Resultados da comparação baseline vs. modelo de ML (Issue #13)",
@@ -127,10 +184,14 @@ def gerar_relatorio_markdown(metricas: pd.DataFrame, data_inicio_teste: str, dat
     ]
 
     if mae_modelo < mae_baseline:
-        linhas.append(f"**O modelo de ML reduziu o erro (MAE) em {reducao_pct:.1f}% frente ao baseline.**")
+        linhas.append(
+            f"**O modelo de ML reduziu o erro (MAE) em {reducao_pct:.1f}% frente ao baseline, "
+            f"vencendo em {n_vencedores} de {n_total} medicamentos** (contagem derivada automaticamente da tabela abaixo, não escrita à mão)."
+        )
     else:
         linhas.append(
-            f"**Neste período de teste, o modelo de ML NÃO superou o baseline** (MAE {mae_modelo:.2f} vs. {mae_baseline:.2f}). "
+            f"**Neste período de teste, o modelo de ML NÃO superou o baseline** (MAE {mae_modelo:.2f} vs. {mae_baseline:.2f}), "
+            f"vencendo em apenas {n_vencedores} de {n_total} medicamentos. "
             "Reportado sem ajuste — ver seção de detalhamento por medicamento abaixo antes de decidir qualquer próximo passo (ex.: mais dado de treino, outro horizonte, outro modelo)."
         )
 
@@ -148,15 +209,23 @@ def gerar_relatorio_markdown(metricas: pd.DataFrame, data_inicio_teste: str, dat
         venceu = "Sim" if mae_m < mae_b else "Não"
         linhas.append(f"| {medicamento_id} | {mae_b:.2f} | {mae_m:.2f} | {mape_b:.1f}% | {mape_m:.1f}% | {venceu} |")
 
+    versoes = _versoes_dependencias()
+    hiperparametros_texto = ", ".join(f"{chave}={valor}" for chave, valor in HIPERPARAMETROS_XGBOOST.items())
+
     linhas += [
         "",
         "## Reprodutibilidade",
         "",
         f"- **Commit:** `{_commit_atual()}`",
+        f"- **Hash do dataset avaliado:** `{_hash_arquivo(DADOS_MODELAGEM)}` (`data/processed/consumo_medicamentos.csv`, SHA256 truncado — dataset regenerado muda esse hash mesmo com o mesmo commit de código)",
         f"- **Período avaliado:** {data_inicio_teste} a {data_fim_teste} (dataset completo: {PERIODO_INICIO} a {PERIODO_FIM})",
+        f"- **Ambiente:** Python {versoes['python']}, pandas {versoes['pandas']}, numpy {versoes['numpy']}, scikit-learn {versoes['scikit-learn']}, xgboost {versoes['xgboost']} (ver `requirements.txt` para as versões fixadas)",
         f"- **Baseline:** média móvel de {JANELA_PADRAO_DIAS} dias (`src/models/baseline.py::prever_baseline`)",
-        "- **Modelo de ML:** XGBoost (`XGBRegressor`, `max_depth=7, learning_rate=0.1, n_estimators=500, subsample=0.8, colsample_bytree=0.8`, `random_state=42`) — ver `src/models/modelo_demanda.py::treinar_modelo`",
+        f"- **Modelo de ML:** XGBoost (`XGBRegressor`, `n_estimators={N_ESTIMATORS_PADRAO}`, `random_state={RANDOM_STATE_PADRAO}`, `{hiperparametros_texto}`) — hiperparâmetros vêm de `src/models/modelo_demanda.py::HIPERPARAMETROS_XGBOOST`, fonte única (este texto nunca é editado à mão)",
+        f"- **Medicamentos onde o modelo venceu:** {n_vencedores} de {n_total} (derivado da tabela acima, coberto por teste — ver `tests/test_comparar_modelos.py`)",
         "- **Comando para regenerar este relatório:** `python src/evaluation/comparar_modelos.py`",
+        "",
+        "`n_jobs=1` é deliberado (não é o mais rápido): XGBoost com `tree_method=\"hist\"` não é invariante ao número de threads mesmo com `random_state` fixo — rodar com `n_jobs=-1` em máquinas com números de núcleos diferentes pode produzir modelos (e relatórios) diferentes. Duas execuções nas mesmas condições acima devem produzir exatamente o mesmo relatório.",
     ]
 
     return "\n".join(linhas) + "\n"

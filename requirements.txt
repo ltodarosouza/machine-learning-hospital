@@ -1,19 +1,21 @@
 # Dados / core
-pandas
-numpy
+pandas==3.0.3
+numpy==2.4.6
 
 # Modelagem
-scikit-learn
-prophet
-xgboost
+# (prophet estava listado aqui desde o planejamento inicial do stack, mas
+# nunca foi usado no código nem instalado no ambiente do time — removido na
+# Issue #75 em vez de fixar versão de algo que não é verificado/testado.)
+scikit-learn==1.8.0
+xgboost==3.4.0
 
 # Dashboard
-streamlit
+streamlit==1.58.0
 
 # Testes
-pytest
+pytest==9.1.1
 
 # Utilitários
-python-dotenv
-requests
-holidays
+python-dotenv==1.2.2
+requests==2.34.2
+holidays==0.102

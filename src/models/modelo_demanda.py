@@ -7,17 +7,13 @@ erro no horizonte do MVP.
 Algoritmo: XGBoost (gradient boosting), trocado de Random Forest depois de um
 experimento comparando as duas opções, mais Gradient Boosting do scikit-learn,
 sob a mesma metodologia de validação temporal sem vazamento (retreina do zero
-a cada janela, só usa ``data <= corte``). Hiperparâmetros re-tunados
-(``scripts/tuning_xgboost.py``) depois que as Issues #58-#61 mudaram a
-estrutura do gerador sintético (estados latentes de surto, causalidade dos
-atendimentos, censura de demanda por ruptura, ruído autocorrelacionado por
-medicamento) — a config anterior (``max_depth=5``) tinha sido escolhida para
-um processo gerador mais simples e ficou desatualizada. Config atual:
-``max_depth=7``, ``learning_rate=0.1``, ``n_estimators=500``. O MAE absoluto
-não é comparável ao de antes dessas 4 issues: o dataset ficou estruturalmente
-mais variável (surtos, demanda censurada), então um MAE maior aqui não é
-necessariamente um modelo pior. Detalhes em
-docs/arquitetura/RESULTADOS_MODELAGEM.md e src/models/README.md.
+a cada janela, só usa ``data <= corte``). Hiperparâmetros em
+``HIPERPARAMETROS_XGBOOST``, re-tunados (``scripts/tuning_xgboost.py``)
+sempre que o gerador sintético muda de forma estrutural — histórico completo
+em ``src/models/README.md``. O MAE absoluto não é comparável entre rodadas
+onde o dataset mudou de estrutura (ex.: adição de surtos, demanda censurada):
+um MAE maior não é necessariamente um modelo pior, pode ser um problema mais
+difícil. Detalhes em docs/arquitetura/RESULTADOS_MODELAGEM.md.
 """
 
 from __future__ import annotations
@@ -47,6 +43,7 @@ __all__ = [
     "avaliar_validacao_temporal",
     "validar_saida_modelo",
     "COLUNAS_SAIDA",
+    "HIPERPARAMETROS_XGBOOST",
 ]
 
 COLUNAS_SAIDA = [
@@ -59,6 +56,30 @@ COLUNAS_SAIDA = [
 COLUNAS_OBRIGATORIAS = {"data", "medicamento_id", "consumo_unidades"}
 DADOS_MODELAGEM = Path(__file__).resolve().parents[2] / "data" / "processed" / "consumo_medicamentos.csv"
 Z_INTERVALO = 1.0
+
+# Fonte única de verdade dos hiperparâmetros do XGBoost (Issue #75) — antes
+# esses valores também apareciam hardcoded como string solta no relatório de
+# `comparar_modelos.py`, e mais de uma vez ficaram desatualizados depois de
+# uma rodada de tuning porque ninguém lembrou de atualizar as duas cópias.
+# Qualquer lugar que precise descrever os hiperparâmetros (relatório,
+# reprodutibilidade, dashboard) deve importar daqui, nunca reescrever.
+#
+# `n_jobs=1` (em vez de -1) é deliberado, não um esquecimento: o XGBoost com
+# `tree_method="hist"` (padrão) NÃO é invariante ao número de threads mesmo
+# com `random_state` fixo — o mesmo treino em máquinas com números de núcleos
+# diferentes produz modelos diferentes (verificado empiricamente: previsões
+# chegaram a divergir ~60 unidades entre `n_jobs=-1` e `n_jobs=1` no mesmo
+# dado). Foi essa a causa raiz da Issue #75 (contagens diferentes de
+# "medicamento vencedor" em máquinas diferentes). `n_jobs=1` é ~2x mais lento
+# por treino, mas é o único jeito de garantir que duas pessoas, em máquinas
+# diferentes, cheguem exatamente ao mesmo resultado.
+HIPERPARAMETROS_XGBOOST: dict = {
+    "max_depth": 7,
+    "learning_rate": 0.1,
+    "subsample": 0.8,
+    "colsample_bytree": 0.8,
+    "n_jobs": 1,
+}
 
 
 def preparar_dados_supervisionados(
@@ -106,12 +127,8 @@ def treinar_modelo(
     )
     regressor = XGBRegressor(
         n_estimators=n_estimators,
-        max_depth=7,
-        learning_rate=0.1,
-        subsample=0.8,
-        colsample_bytree=0.8,
         random_state=random_state,
-        n_jobs=-1,
+        **HIPERPARAMETROS_XGBOOST,
     )
     pipeline = Pipeline([("pre_processamento", pre_processador), ("regressor", regressor)])
     pipeline.fit(entrada, alvo)
