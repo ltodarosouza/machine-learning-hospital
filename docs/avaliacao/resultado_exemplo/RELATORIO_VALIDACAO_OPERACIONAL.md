@@ -4,8 +4,8 @@
 
 ## Metadados da execução
 
-- **commit:** `d9d34b9`
-- **hash_codigo_protocolo:** `9aaf4b0c`
+- **commit:** `21aac91`
+- **hash_codigo_protocolo:** `cd5a0dbc`
 - **hash_consumo_diario:** `15afaef5`
 - **hash_consumo_medicamentos:** `3043fd82`
 - **hash_executor_protocolo:** `d08bd65d`

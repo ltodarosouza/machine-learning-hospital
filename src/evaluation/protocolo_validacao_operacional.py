@@ -74,6 +74,21 @@ class ConfiguracaoProtocolo:
     aumento_relevante_maximo: float = AUMENTO_RELEVANTE_MAXIMO
     tolerancia_empate: float = TOLERANCIA_EMPATE
 
+    def __post_init__(self) -> None:
+        _validar_nome(self.versao, "versao")
+        _validar_inteiro_positivo(self.horizonte_dias, "horizonte_dias")
+        _validar_inteiro_positivo(self.treino_minimo_dias, "treino_minimo_dias")
+        _validar_minimo_janelas(self.minimo_janelas)
+        _validar_parametro_fracao(
+            self.fracao_minima_janelas_com_meta,
+            "fracao_minima_janelas_com_meta",
+        )
+        _validar_parametro_fracao(self.reducao_minima_custo, "reducao_minima_custo")
+        _validar_parametro_fracao(
+            self.aumento_relevante_maximo, "aumento_relevante_maximo"
+        )
+        _validar_parametro_nao_negativo(self.tolerancia_empate, "tolerancia_empate")
+
 
 def gerar_janelas_backtest(
     datas: pd.Series | pd.Index | list[Any],
@@ -90,7 +105,7 @@ def gerar_janelas_backtest(
     """
     _validar_inteiro_positivo(horizonte_dias, "horizonte_dias")
     _validar_inteiro_positivo(treino_minimo_dias, "treino_minimo_dias")
-    _validar_inteiro_positivo(minimo_janelas, "minimo_janelas")
+    _validar_minimo_janelas(minimo_janelas)
     passo = horizonte_dias if passo_dias is None else passo_dias
     _validar_inteiro_positivo(passo, "passo_dias")
     if passo < horizonte_dias:
@@ -101,6 +116,10 @@ def gerar_janelas_backtest(
     serie = pd.Series(datas, dtype="object")
     if serie.empty:
         raise ValueError("datas não pode estar vazio.")
+    if serie.map(
+        lambda valor: isinstance(valor, (bool, np.bool_, int, float, np.number))
+    ).any():
+        raise TypeError("datas deve conter datas, não números ou booleanos.")
     try:
         normalizadas = pd.to_datetime(serie, errors="raise", utc=True).dt.normalize()
     except (TypeError, ValueError) as erro:
@@ -164,10 +183,26 @@ def calcular_metricas_janela(
         previsoes, ["demanda_prevista", "consumo_unidades"], "comparacao_previsoes"
     )
     _validar_numericas(impacto, COLUNAS_OPERACIONAIS, "impacto_operacional")
+    previsoes[["demanda_prevista", "consumo_unidades"]] = previsoes[
+        ["demanda_prevista", "consumo_unidades"]
+    ].apply(pd.to_numeric, errors="raise")
+    impacto[COLUNAS_OPERACIONAIS] = impacto[COLUNAS_OPERACIONAIS].apply(
+        pd.to_numeric, errors="raise"
+    )
     if previsoes.empty or impacto.empty:
         raise ValueError(
             "A janela não pode ter previsões ou impacto operacional vazios."
         )
+    if (
+        (previsoes[["demanda_prevista", "consumo_unidades"]].apply(pd.to_numeric) < 0)
+        .any()
+        .any()
+    ):
+        raise ValueError(
+            "comparacao_previsoes não aceita demanda ou consumo negativos."
+        )
+    if (impacto[COLUNAS_OPERACIONAIS].apply(pd.to_numeric) < 0).any().any():
+        raise ValueError("impacto_operacional não aceita métricas negativas.")
 
     previsoes["metodo"] = candidato
     metricas_canonicas = calcular_metricas(previsoes)
@@ -247,7 +282,7 @@ def avaliar_aprovacao(
     episódios, unidades em ruptura ou vencimentos. Os limites são parâmetros,
     e os defaults são constantes versionadas deste protocolo.
     """
-    candidato = _extrair_candidato(metricas_candidato, "metricas_candidato")
+    candidato = "desconhecido"
     motivos_aprovacao: list[str] = []
     motivos_rejeicao: list[str] = []
     base_resultado = {
@@ -264,16 +299,22 @@ def avaliar_aprovacao(
         "motivos_rejeicao": motivos_rejeicao,
     }
     try:
+        candidato = _extrair_candidato(metricas_candidato, "metricas_candidato")
+        base_resultado["candidato"] = candidato
         _validar_parametro_fracao(reducao_minima_custo, "reducao_minima_custo")
         _validar_parametro_fracao(
             fracao_minima_janelas_com_meta, "fracao_minima_janelas_com_meta"
         )
         _validar_parametro_fracao(aumento_relevante_maximo, "aumento_relevante_maximo")
-        _validar_inteiro_positivo(minimo_janelas, "minimo_janelas")
+        _validar_minimo_janelas(minimo_janelas)
         _validar_parametro_nao_negativo(tolerancia_empate, "tolerancia_empate")
         _validar_metricas(metricas_baseline, "metricas_baseline")
         _validar_metricas(metricas_candidato, "metricas_candidato")
-        _extrair_candidato(metricas_baseline, "metricas_baseline")
+        nome_baseline = _extrair_candidato(metricas_baseline, "metricas_baseline")
+        if nome_baseline == candidato:
+            raise ValueError(
+                "Baseline e candidato devem possuir identificadores diferentes."
+            )
         baseline_normalizado = _normalizar_metricas(metricas_baseline)
         candidato_normalizado = _normalizar_metricas(metricas_candidato)
         pares = _parear_janelas(baseline_normalizado, candidato_normalizado)
@@ -288,8 +329,18 @@ def avaliar_aprovacao(
         )
         return base_resultado
 
-    custo_base = float(pares["custo_compras_emergenciais_reais_baseline"].sum())
-    custo_candidato = float(pares["custo_compras_emergenciais_reais_candidato"].sum())
+    try:
+        custo_base = _soma_finita(
+            pares["custo_compras_emergenciais_reais_baseline"],
+            "custo emergencial baseline",
+        )
+        custo_candidato = _soma_finita(
+            pares["custo_compras_emergenciais_reais_candidato"],
+            "custo emergencial candidato",
+        )
+    except ValueError as erro:
+        motivos_rejeicao.append(str(erro))
+        return base_resultado
     if custo_base <= tolerancia_empate:
         motivos_rejeicao.append(
             "Baseline possui custo emergencial zero; redução percentual é indefinida."
@@ -321,14 +372,21 @@ def avaliar_aprovacao(
         "unidades_vencidas": "variacao_vencimento_pct",
     }
     pioras: list[str] = []
-    for metrica, campo_saida in mapeamento.items():
-        variacao = _variacao_agregada(pares, metrica, tolerancia_empate)
-        base_resultado[campo_saida] = None if variacao is None else variacao * 100
-        if variacao is None:
-            if pares[f"{metrica}_candidato"].sum() > tolerancia_empate:
-                pioras.append(f"{metrica}: baseline zero e candidato acima de zero")
-        elif variacao > aumento_relevante_maximo + tolerancia_empate:
-            pioras.append(f"{metrica}: aumento de {variacao * 100:.2f}%")
+    try:
+        for metrica, campo_saida in mapeamento.items():
+            variacao = _variacao_agregada(pares, metrica, tolerancia_empate)
+            base_resultado[campo_saida] = None if variacao is None else variacao * 100
+            if variacao is None:
+                candidato_total = _soma_finita(
+                    pares[f"{metrica}_candidato"], f"{metrica} candidato"
+                )
+                if candidato_total > tolerancia_empate:
+                    pioras.append(f"{metrica}: baseline zero e candidato acima de zero")
+            elif variacao > aumento_relevante_maximo + tolerancia_empate:
+                pioras.append(f"{metrica}: aumento de {variacao * 100:.2f}%")
+    except ValueError as erro:
+        motivos_rejeicao.append(str(erro))
+        return base_resultado
 
     fracao_meta = janelas_meta / len(pares)
     if reducao_agregada < reducao_minima_custo - tolerancia_empate:
@@ -370,10 +428,17 @@ def gerar_relatorio_validacao(
     decisao: Mapping[str, Any],
 ) -> str:
     """Gera relatório Markdown inteiramente derivado das entradas."""
+    if not isinstance(metadados, Mapping):
+        raise TypeError("metadados deve ser um mapeamento.")
+    if not isinstance(decisao, Mapping):
+        raise TypeError("decisao deve ser um mapeamento.")
     _validar_colunas(janelas, set(COLUNAS_JANELAS), "janelas")
     _validar_metricas(metricas, "metricas")
     if decisao.get("status") not in STATUS_VALIDOS:
         raise ValueError("decisao.status inválido.")
+    janelas_ordenadas, metricas_ordenadas = _validar_coerencia_relatorio(
+        configuracao, janelas, metricas, decisao
+    )
     linhas = [
         "# Relatório de validação operacional",
         "",
@@ -394,19 +459,19 @@ def gerar_relatorio_validacao(
         "",
         "## Janelas",
         "",
-        _dataframe_markdown(janelas[COLUNAS_JANELAS]),
+        _dataframe_markdown(janelas_ordenadas[COLUNAS_JANELAS]),
     ]
     linhas += [
         "",
         "## Métricas por janela e candidato",
         "",
-        _dataframe_markdown(metricas),
+        _dataframe_markdown(metricas_ordenadas),
     ]
     operacionais = COLUNAS_OPERACIONAIS
-    consolidado_operacional = metricas.groupby("candidato", as_index=False)[
+    consolidado_operacional = metricas_ordenadas.groupby("candidato", as_index=False)[
         operacionais
     ].sum()
-    consolidado_preditivo = metricas.groupby("candidato", as_index=False)[
+    consolidado_preditivo = metricas_ordenadas.groupby("candidato", as_index=False)[
         ["mae", "mape", "vies_previsao", "subestimacao", "superestimacao"]
     ].mean()
     consolidado = consolidado_preditivo.merge(
@@ -440,6 +505,9 @@ def salvar_relatorio_validacao(
     """Salva CSV, JSON e Markdown suficientes para reproduzir a decisão."""
     destino = Path(diretorio)
     destino.mkdir(parents=True, exist_ok=True)
+    janelas_ordenadas, metricas_ordenadas = _validar_coerencia_relatorio(
+        configuracao, janelas, metricas, decisao
+    )
     caminhos = {
         "janelas": destino / "janelas.csv",
         "metricas": destino / "metricas.csv",
@@ -447,8 +515,8 @@ def salvar_relatorio_validacao(
         "decisao": destino / "decisao.json",
         "relatorio": destino / "RELATORIO_VALIDACAO_OPERACIONAL.md",
     }
-    janelas.to_csv(caminhos["janelas"], index=False)
-    metricas.to_csv(caminhos["metricas"], index=False)
+    janelas_ordenadas.to_csv(caminhos["janelas"], index=False)
+    metricas_ordenadas.to_csv(caminhos["metricas"], index=False)
     caminhos["configuracao"].write_text(
         json.dumps(asdict(configuracao), ensure_ascii=False, sort_keys=True, indent=2)
         + "\n",
@@ -459,7 +527,9 @@ def salvar_relatorio_validacao(
         encoding="utf-8",
     )
     caminhos["relatorio"].write_text(
-        gerar_relatorio_validacao(metadados, configuracao, janelas, metricas, decisao),
+        gerar_relatorio_validacao(
+            metadados, configuracao, janelas_ordenadas, metricas_ordenadas, decisao
+        ),
         encoding="utf-8",
     )
     return caminhos
@@ -492,12 +562,128 @@ def _parear_janelas(baseline: pd.DataFrame, candidato: pd.DataFrame) -> pd.DataF
     )
 
 
+def _validar_coerencia_relatorio(
+    configuracao: ConfiguracaoProtocolo,
+    janelas: pd.DataFrame,
+    metricas: pd.DataFrame,
+    decisao: Mapping[str, Any],
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    if not isinstance(configuracao, ConfiguracaoProtocolo):
+        raise TypeError("configuracao deve ser ConfiguracaoProtocolo.")
+    if not isinstance(decisao, Mapping):
+        raise TypeError("decisao deve ser um mapeamento.")
+    _validar_colunas(janelas, set(COLUNAS_JANELAS), "janelas")
+    if janelas.empty:
+        raise ValueError("janelas não pode estar vazio.")
+    janelas_ordenadas = janelas[COLUNAS_JANELAS].copy()
+    if (
+        not janelas_ordenadas["janela_id"]
+        .map(lambda valor: isinstance(valor, str) and bool(valor.strip()))
+        .all()
+    ):
+        raise ValueError("janelas.janela_id deve conter apenas textos não vazios.")
+    janelas_ordenadas = janelas_ordenadas.sort_values("janela_id").reset_index(
+        drop=True
+    )
+    if janelas_ordenadas["janela_id"].duplicated().any():
+        raise ValueError("janelas contém janela_id duplicado.")
+    _validar_temporalidade_janelas(janelas_ordenadas, configuracao)
+    ids_janelas = set(janelas_ordenadas["janela_id"])
+    metricas_ordenadas = (
+        metricas.copy().sort_values(["janela_id", "candidato"]).reset_index(drop=True)
+    )
+    if set(metricas_ordenadas["janela_id"]) != ids_janelas:
+        raise ValueError(
+            "Métricas e tabela de janelas devem conter exatamente os mesmos janela_id."
+        )
+    candidatos = set(metricas_ordenadas["candidato"])
+    candidato_decisao = decisao.get("candidato")
+    if not isinstance(candidato_decisao, str) or not candidato_decisao.strip():
+        raise ValueError("decisao.candidato deve ser um texto não vazio.")
+    if "baseline" not in candidatos or candidato_decisao not in candidatos:
+        raise ValueError(
+            "Relatório deve conter baseline e o candidato informado na decisão."
+        )
+    if candidatos != {"baseline", candidato_decisao}:
+        raise ValueError(
+            "Relatório de uma decisão deve conter apenas baseline e seu candidato."
+        )
+    recalculada = avaliar_aprovacao(
+        metricas_ordenadas[metricas_ordenadas["candidato"] == "baseline"],
+        metricas_ordenadas[metricas_ordenadas["candidato"] == candidato_decisao],
+        reducao_minima_custo=configuracao.reducao_minima_custo,
+        fracao_minima_janelas_com_meta=configuracao.fracao_minima_janelas_com_meta,
+        aumento_relevante_maximo=configuracao.aumento_relevante_maximo,
+        minimo_janelas=configuracao.minimo_janelas,
+        tolerancia_empate=configuracao.tolerancia_empate,
+    )
+    if dict(decisao) != recalculada:
+        raise ValueError("decisao não é reconciliável com métricas e configuração.")
+    return janelas_ordenadas, metricas_ordenadas
+
+
+def _validar_temporalidade_janelas(
+    janelas: pd.DataFrame, configuracao: ConfiguracaoProtocolo
+) -> None:
+    datas = {}
+    for coluna in ("inicio_treino", "fim_treino", "inicio_avaliacao", "fim_avaliacao"):
+        if (
+            janelas[coluna]
+            .map(
+                lambda valor: isinstance(valor, (bool, np.bool_, int, float, np.number))
+            )
+            .any()
+        ):
+            raise TypeError(f"janelas.{coluna} deve conter datas, não números.")
+        try:
+            datas[coluna] = pd.to_datetime(
+                janelas[coluna], errors="raise", utc=True
+            ).dt.normalize()
+        except (TypeError, ValueError) as erro:
+            raise ValueError(f"janelas.{coluna} contém data inválida.") from erro
+        if datas[coluna].isna().any():
+            raise ValueError(f"janelas.{coluna} contém data ausente.")
+    if not (datas["fim_treino"] < datas["inicio_avaliacao"]).all():
+        raise ValueError(
+            "janelas contém vazamento: treino deve terminar antes da avaliação."
+        )
+    if not (datas["inicio_treino"] <= datas["fim_treino"]).all():
+        raise ValueError("janelas contém período de treino invertido.")
+    if not datas["inicio_treino"].eq(datas["inicio_treino"].iloc[0]).all():
+        raise ValueError("janelas expansivas devem compartilhar o início do treino.")
+    if (
+        not datas["fim_treino"]
+        .eq(datas["inicio_avaliacao"] - pd.Timedelta(days=1))
+        .all()
+    ):
+        raise ValueError("treino deve terminar na véspera da janela de avaliação.")
+    duracao = (datas["fim_avaliacao"] - datas["inicio_avaliacao"]).dt.days + 1
+    if not duracao.eq(configuracao.horizonte_dias).all():
+        raise ValueError("janelas não respeita horizonte_dias da configuração.")
+    ordem = pd.DataFrame(
+        {"inicio": datas["inicio_avaliacao"], "fim": datas["fim_avaliacao"]}
+    ).sort_values("inicio")
+    if (
+        ordem["inicio"].iloc[1:].reset_index(drop=True)
+        <= ordem["fim"].iloc[:-1].reset_index(drop=True)
+    ).any():
+        raise ValueError("janelas de avaliação não podem se sobrepor.")
+
+
 def _variacao_agregada(
     pares: pd.DataFrame, metrica: str, tolerancia: float
 ) -> float | None:
-    base = float(pares[f"{metrica}_baseline"].sum())
-    candidato = float(pares[f"{metrica}_candidato"].sum())
+    base = _soma_finita(pares[f"{metrica}_baseline"], f"{metrica} baseline")
+    candidato = _soma_finita(pares[f"{metrica}_candidato"], f"{metrica} candidato")
     return None if base <= tolerancia else candidato / base - 1
+
+
+def _soma_finita(serie: pd.Series, nome: str) -> float:
+    with np.errstate(over="ignore", invalid="ignore"):
+        total = float(serie.to_numpy(dtype=float).sum())
+    if not math.isfinite(total):
+        raise ValueError(f"{nome} produziu valor não finito após agregação.")
+    return total
 
 
 def _extrair_candidato(df: pd.DataFrame, nome: str) -> str:
@@ -566,6 +752,14 @@ def _validar_inteiro_positivo(valor: int, nome: str) -> None:
         raise ValueError(f"{nome} deve ser inteiro positivo.")
 
 
+def _validar_minimo_janelas(valor: int) -> None:
+    _validar_inteiro_positivo(valor, "minimo_janelas")
+    if valor < 2:
+        raise ValueError(
+            "minimo_janelas deve exigir múltiplas janelas (valor mínimo: 2)."
+        )
+
+
 def _validar_parametro_fracao(valor: float, nome: str) -> None:
     _validar_parametro_nao_negativo(valor, nome)
     if valor > 1:
@@ -585,5 +779,8 @@ def _dataframe_markdown(df: pd.DataFrame) -> str:
     separador = "|" + "|".join("---" for _ in colunas) + "|"
     linhas = [cabecalho, separador]
     for valores in df.itertuples(index=False, name=None):
-        linhas.append("| " + " | ".join(str(valor) for valor in valores) + " |")
+        celulas = [
+            str(valor).replace("|", "\\|").replace("\n", " ") for valor in valores
+        ]
+        linhas.append("| " + " | ".join(celulas) + " |")
     return "\n".join(linhas)

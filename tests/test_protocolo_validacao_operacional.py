@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import json
 
+import numpy as np
 import pandas as pd
 import pytest
 
 from src.evaluation.protocolo_validacao_operacional import (
+    COLUNAS_OPERACIONAIS,
     RESSALVA_FINANCEIRA,
     ConfiguracaoProtocolo,
     avaliar_aprovacao,
@@ -323,3 +325,257 @@ def test_relatorio_reconcilia_decisao_e_inclui_ressalva_financeira() -> None:
         json.dumps(decisao, ensure_ascii=False, sort_keys=True, indent=2) in relatorio
     )
     assert "Issue #76 ainda não está integrada" in relatorio
+
+
+def test_candidato_invalido_retorna_dados_insuficientes_sem_excecao() -> None:
+    baseline = _metricas("baseline", [100] * 4)
+    candidato = _metricas("modelo", [80] * 4)
+    candidato.loc[1, "candidato"] = "outro"
+
+    decisao = avaliar_aprovacao(baseline, candidato)
+
+    assert decisao["status"] == "dados_insuficientes"
+    assert decisao["candidato"] == "desconhecido"
+
+
+def test_rejeita_baseline_e_candidato_com_mesmo_identificador() -> None:
+    decisao = avaliar_aprovacao(
+        _metricas("modelo", [100] * 4), _metricas("modelo", [80] * 4)
+    )
+    assert decisao["status"] == "dados_insuficientes"
+    assert any(
+        "identificadores diferentes" in motivo for motivo in decisao["motivos_rejeicao"]
+    )
+
+
+@pytest.mark.parametrize("valor", [True, 0, 1.5])
+def test_rejeita_numero_ou_booleano_como_data_de_backtest(valor) -> None:
+    datas = pd.Series(pd.date_range("2024-01-01", periods=393), dtype=object)
+    datas.iloc[0] = valor
+    with pytest.raises(TypeError, match="não números"):
+        gerar_janelas_backtest(datas)
+
+
+def test_rejeita_valores_negativos_individuais_antes_da_agregacao() -> None:
+    previsoes = pd.DataFrame(
+        {
+            "medicamento_id": ["a", "b"],
+            "demanda_prevista": [10.0, -10.0],
+            "consumo_unidades": [5.0, 5.0],
+        }
+    )
+    impacto = pd.DataFrame(
+        {
+            "custo_compras_emergenciais_reais": [10.0, -10.0],
+            "episodios_ruptura": [1.0, 0.0],
+            "unidades_em_ruptura": [1.0, 0.0],
+            "unidades_vencidas": [0.0, 0.0],
+            "quantidade_total_recomendada": [1.0, 0.0],
+        }
+    )
+    with pytest.raises(ValueError, match="demanda ou consumo negativos"):
+        impacto_positivo = impacto.copy()
+        impacto_positivo["custo_compras_emergenciais_reais"] = impacto_positivo[
+            "custo_compras_emergenciais_reais"
+        ].abs()
+        calcular_metricas_janela(previsoes, impacto_positivo, "janela_001", "modelo")
+    with pytest.raises(ValueError, match="métricas negativas"):
+        previsoes_positivas = previsoes.copy()
+        previsoes_positivas["demanda_prevista"] = previsoes_positivas[
+            "demanda_prevista"
+        ].abs()
+        calcular_metricas_janela(previsoes_positivas, impacto, "janela_001", "modelo")
+
+
+def test_relatorio_rejeita_decisao_adulterada_janelas_incompativeis_e_candidato_extra() -> (
+    None
+):
+    baseline = _metricas("baseline", [100] * 4)
+    candidato = _metricas("modelo", [85] * 4)
+    metricas = pd.concat([baseline, candidato], ignore_index=True)
+    decisao = avaliar_aprovacao(baseline, candidato)
+    janelas = gerar_janelas_backtest(pd.date_range("2024-01-01", periods=393))
+    config = ConfiguracaoProtocolo()
+
+    adulterada = dict(decisao)
+    adulterada["aprovado"] = False
+    with pytest.raises(ValueError, match="não é reconciliável"):
+        gerar_relatorio_validacao({}, config, janelas, metricas, adulterada)
+
+    janelas_vazamento = janelas.copy()
+    janelas_vazamento.loc[0, "fim_treino"] = janelas_vazamento.loc[
+        0, "inicio_avaliacao"
+    ]
+    with pytest.raises(ValueError, match="vazamento"):
+        gerar_relatorio_validacao({}, config, janelas_vazamento, metricas, decisao)
+
+    extra = _metricas("terceiro", [90] * 4)
+    with pytest.raises(ValueError, match="apenas baseline"):
+        gerar_relatorio_validacao(
+            {},
+            config,
+            janelas,
+            pd.concat([metricas, extra], ignore_index=True),
+            decisao,
+        )
+
+
+def test_salvamento_canonico_independe_da_ordem_das_entradas(tmp_path) -> None:
+    baseline = _metricas("baseline", [100, 120, 90, 110])
+    candidato = _metricas("modelo", [85, 100, 75, 90])
+    decisao = avaliar_aprovacao(baseline, candidato)
+    janelas = gerar_janelas_backtest(pd.date_range("2024-01-01", periods=393))
+    metricas = pd.concat([baseline, candidato], ignore_index=True)
+    config = ConfiguracaoProtocolo()
+
+    salvar_relatorio_validacao(tmp_path / "a", {}, config, janelas, metricas, decisao)
+    salvar_relatorio_validacao(
+        tmp_path / "b",
+        {},
+        config,
+        janelas.sample(frac=1, random_state=3),
+        metricas.sample(frac=1, random_state=4),
+        decisao,
+    )
+    for nome in ["janelas.csv", "metricas.csv", "RELATORIO_VALIDACAO_OPERACIONAL.md"]:
+        assert (tmp_path / "a" / nome).read_bytes() == (
+            tmp_path / "b" / nome
+        ).read_bytes()
+
+
+def test_matriz_aleatoria_deterministica_obedece_invariantes_de_aprovacao() -> None:
+    rng = np.random.default_rng(7713)
+    for _ in range(250):
+        quantidade = int(rng.integers(4, 13))
+        custos_base = rng.uniform(1, 10_000, quantidade)
+        fatores_custo = rng.uniform(0.5, 1.3, quantidade)
+        episodios_base = rng.uniform(1, 100, quantidade)
+        rupturas_base = rng.uniform(1, 1_000, quantidade)
+        vencimentos_base = rng.uniform(1, 500, quantidade)
+        fatores_operacionais = rng.uniform(0.7, 1.2, (3, quantidade))
+        baseline = _metricas(
+            "baseline",
+            custos_base.tolist(),
+            episodios_base.tolist(),
+            rupturas_base.tolist(),
+            vencimentos_base.tolist(),
+        )
+        candidato = _metricas(
+            "modelo",
+            (custos_base * fatores_custo).tolist(),
+            (episodios_base * fatores_operacionais[0]).tolist(),
+            (rupturas_base * fatores_operacionais[1]).tolist(),
+            (vencimentos_base * fatores_operacionais[2]).tolist(),
+        )
+
+        decisao = avaliar_aprovacao(baseline, candidato)
+
+        reducao = (
+            1 - candidato["custo_compras_emergenciais_reais"].sum() / custos_base.sum()
+        )
+        janelas_meta = int((1 - fatores_custo >= 0.10 - 1e-9).sum())
+        piora = any(
+            candidato[coluna].sum() / baseline[coluna].sum() - 1 > 0.05 + 1e-9
+            for coluna in [
+                "episodios_ruptura",
+                "unidades_em_ruptura",
+                "unidades_vencidas",
+            ]
+        )
+        esperado = bool(
+            reducao >= 0.10 - 1e-9
+            and janelas_meta / quantidade >= 0.75 - 1e-9
+            and not piora
+        )
+        assert decisao["aprovado"] is esperado
+        assert (decisao["status"] == "aprovado") is esperado
+
+
+def test_rejeita_overflow_de_agregacao_e_protocolo_de_uma_janela() -> None:
+    baseline = _metricas("baseline", [1e308] * 4)
+    candidato = _metricas("modelo", [8e307] * 4)
+    decisao = avaliar_aprovacao(baseline, candidato)
+    assert decisao["status"] == "dados_insuficientes"
+    assert any(
+        "não finito após agregação" in motivo for motivo in decisao["motivos_rejeicao"]
+    )
+
+    baseline_operacional = _metricas("baseline", [100] * 4, episodios=[1e308] * 4)
+    candidato_operacional = _metricas("modelo", [80] * 4, episodios=[8e307] * 4)
+    decisao_operacional = avaliar_aprovacao(baseline_operacional, candidato_operacional)
+    assert decisao_operacional["status"] == "dados_insuficientes"
+    assert any(
+        "não finito após agregação" in motivo
+        for motivo in decisao_operacional["motivos_rejeicao"]
+    )
+
+    with pytest.raises(ValueError, match="múltiplas janelas"):
+        ConfiguracaoProtocolo(minimo_janelas=1)
+    with pytest.raises(ValueError, match="múltiplas janelas"):
+        gerar_janelas_backtest(
+            pd.date_range("2024-01-01", periods=370), minimo_janelas=1
+        )
+
+
+@pytest.mark.parametrize(
+    "argumento,valor",
+    [
+        ("versao", ""),
+        ("horizonte_dias", 0),
+        ("treino_minimo_dias", -1),
+        ("reducao_minima_custo", float("inf")),
+        ("fracao_minima_janelas_com_meta", 1.1),
+        ("aumento_relevante_maximo", True),
+        ("tolerancia_empate", -1),
+    ],
+)
+def test_configuracao_invalida_falha_na_criacao(argumento, valor) -> None:
+    with pytest.raises((TypeError, ValueError)):
+        ConfiguracaoProtocolo(**{argumento: valor})
+
+
+def test_metricas_da_janela_normalizam_numeros_textuais_sem_misturar_tipos() -> None:
+    previsoes = pd.DataFrame(
+        {
+            "medicamento_id": ["a", "b"],
+            "demanda_prevista": ["10", "20"],
+            "consumo_unidades": ["8", "25"],
+        }
+    )
+    impacto = pd.DataFrame({coluna: ["1", "2"] for coluna in COLUNAS_OPERACIONAIS})
+
+    resultado = calcular_metricas_janela(
+        previsoes, impacto, "janela_001", "modelo"
+    ).iloc[0]
+
+    assert resultado["vies_previsao"] == pytest.approx(-1.5)
+    assert resultado["custo_compras_emergenciais_reais"] == pytest.approx(3)
+
+
+def test_relatorio_rejeita_periodos_temporais_incoerentes_e_metadados_invalidos() -> (
+    None
+):
+    baseline = _metricas("baseline", [100] * 4)
+    candidato = _metricas("modelo", [85] * 4)
+    metricas = pd.concat([baseline, candidato], ignore_index=True)
+    decisao = avaliar_aprovacao(baseline, candidato)
+    janelas = gerar_janelas_backtest(pd.date_range("2024-01-01", periods=393))
+    config = ConfiguracaoProtocolo()
+
+    with pytest.raises(TypeError, match="metadados"):
+        gerar_relatorio_validacao([], config, janelas, metricas, decisao)
+
+    treino_invertido = janelas.copy()
+    treino_invertido.loc[0, "inicio_treino"] = treino_invertido.loc[0, "fim_treino"]
+    treino_invertido.loc[0, "fim_treino"] = "2023-12-31"
+    with pytest.raises(ValueError, match="treino invertido"):
+        gerar_relatorio_validacao({}, config, treino_invertido, metricas, decisao)
+
+    treino_com_lacuna = janelas.copy()
+    treino_com_lacuna.loc[0, "fim_treino"] = (
+        (pd.Timestamp(treino_com_lacuna.loc[0, "fim_treino"]) - pd.Timedelta(days=1))
+        .date()
+        .isoformat()
+    )
+    with pytest.raises(ValueError, match="véspera"):
+        gerar_relatorio_validacao({}, config, treino_com_lacuna, metricas, decisao)
