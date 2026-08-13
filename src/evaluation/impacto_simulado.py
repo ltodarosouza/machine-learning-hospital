@@ -12,8 +12,6 @@ from __future__ import annotations
 import pandas as pd
 
 from src.data_ingestion.gerar_dataset_sintetico import gerar_lotes_no_corte
-from src.evaluation.comparar_modelos import avaliar_baseline_periodo, avaliar_modelo_periodo
-
 
 COLUNAS_PREVISAO = {"medicamento_id", "data_previsao", "demanda_prevista"}
 COLUNAS_REAL = {"medicamento_id", "data", "consumo_unidades"}
@@ -89,6 +87,7 @@ def simular_impacto(
         )
         chegadas: dict[pd.Timestamp, float] = {}
         rupturas = emergenciais = custo_emergencial = vencidas = 0.0
+        quantidade_total_recomendada = 0.0
         episodios = 0
         for _, dia in serie.iterrows():
             data = dia["data"]
@@ -107,6 +106,7 @@ def simular_impacto(
             estoque = sum(quantidade for _, quantidade in estoque_lotes)
             demanda_lead_time = max(float(dia["demanda_prevista"]), 0.0) * max(prazo, 1)
             pedido = max(demanda_lead_time * (1 + fator_seguranca) - estoque - sum(chegadas.values()), 0.0)
+            quantidade_total_recomendada += pedido
             chegada = data + pd.Timedelta(days=prazo)
             chegadas[chegada] = chegadas.get(chegada, 0.0) + pedido
             realizado = max(float(dia["consumo_unidades"]), 0.0)
@@ -132,6 +132,7 @@ def simular_impacto(
                 "compras_emergenciais_unidades": emergenciais,
                 "custo_compras_emergenciais_reais": custo_emergencial,
                 "unidades_vencidas": vencidas,
+                "quantidade_total_recomendada": quantidade_total_recomendada,
             }
         )
     return pd.DataFrame(resultados)
@@ -139,7 +140,14 @@ def simular_impacto(
 
 def comparar_cenarios(impacto_baseline: pd.DataFrame, impacto_modelo: pd.DataFrame) -> pd.DataFrame:
     """Compara os impactos agregados e calcula a economia estimada em reais."""
-    metricas = ["episodios_ruptura", "unidades_em_ruptura", "compras_emergenciais_unidades", "custo_compras_emergenciais_reais", "unidades_vencidas"]
+    metricas = [
+        "episodios_ruptura",
+        "unidades_em_ruptura",
+        "compras_emergenciais_unidades",
+        "custo_compras_emergenciais_reais",
+        "unidades_vencidas",
+        "quantidade_total_recomendada",
+    ]
     base = impacto_baseline[metricas].sum().rename("baseline")
     modelo = impacto_modelo[metricas].sum().rename("modelo_ml")
     comparacao = pd.concat([base, modelo], axis=1).reset_index(names="metrica")
@@ -176,6 +184,11 @@ def simular_periodo(
     fim: str,
 ) -> pd.DataFrame:
     """Executa a comparação com snapshot de lotes do próprio corte."""
+    from src.evaluation.comparar_modelos import (
+        avaliar_baseline_periodo,
+        avaliar_modelo_periodo,
+    )
+
     baseline = avaliar_baseline_periodo(dados, inicio, fim)
     modelo = avaliar_modelo_periodo(dados, inicio, fim)
     corte = pd.Timestamp(inicio) - pd.Timedelta(days=1)
