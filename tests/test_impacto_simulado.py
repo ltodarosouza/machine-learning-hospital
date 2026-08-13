@@ -1,4 +1,5 @@
 import pandas as pd
+import pytest
 
 from src.evaluation.impacto_simulado import comparar_cenarios, gerar_relatorio_trimestral, simular_impacto
 
@@ -20,6 +21,18 @@ def test_previsao_melhor_reduz_compras_emergenciais():
 
     assert ruim.loc[0, "compras_emergenciais_unidades"] > boa.loc[0, "compras_emergenciais_unidades"]
     assert comparacao.loc["custo_compras_emergenciais_reais", "reducao"] > 0
+
+
+def test_aceita_fator_de_seguranca_por_medicamento_e_reporta_estoque_medio() -> None:
+    resultado = simular_impacto(*_entrada([10.0, 10.0, 10.0]), fator_seguranca={"med_a": 0.5})
+
+    assert resultado.loc[0, "quantidade_total_recomendada"] >= 0
+    assert resultado.loc[0, "estoque_medio_unidades"] >= 0
+
+
+def test_rejeita_mapa_de_fator_incompleto() -> None:
+    with pytest.raises(ValueError, match="cobrir exatamente"):
+        simular_impacto(*_entrada([10.0, 10.0, 10.0]), fator_seguranca={})
 
 
 def test_contabiliza_lote_vencido_antes_do_consumo():

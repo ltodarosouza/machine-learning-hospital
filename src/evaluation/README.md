@@ -77,3 +77,13 @@ python src/evaluation/protocolo_janela_longa.py
 ```
 
 Gera duas decisões auditáveis completas (`janelas.csv`, `metricas.csv`, `configuracao.json`, `decisao.json`, `RELATORIO_VALIDACAO_OPERACIONAL.md`, via `salvar_relatorio_validacao`) em `docs/avaliacao/revalidacao_janela_longa/`: `vs_baseline/` (candidato contra a média móvel) e `vs_modelo_atual/` (candidato contra o modelo em produção — a pergunta operacional real desta issue, com as métricas do modelo atual ocupando o papel de "baseline" que o protocolo exige, documentado nos metadados de cada relatório para não confundir com o baseline literal). Nenhuma decisão da versão 1.0.0 do protocolo é reescrita.
+
+## `avaliacao_politica_estoque.py` (Issue #79) — pronto
+
+Mantém a previsão fixa e testa somente a regra de reposição. Em vez de configurar cada medicamento, aplica buffers compartilhados por **perfil de demanda** (contínuo, intermitente, errático) e **faixa de prazo** (curto/longo). A política conservadora reduziu custo e rupturas na simulação contínua trimestral, para baseline e modelo atual, ao custo de aproximadamente 10% a mais de estoque médio; vencimentos não aumentaram. A política moderada foi descartada porque aumentou unidades em ruptura.
+
+```bash
+python -m src.evaluation.avaliacao_politica_estoque
+```
+
+Gera [`docs/avaliacao/RESULTADOS_POLITICA_ESTOQUE.md`](../../docs/avaliacao/RESULTADOS_POLITICA_ESTOQUE.md), com grupos, buffers e a validação formal na janela longa v1.1.0. A política ainda não é conectada ao dashboard nem ao motor de recomendação: a aprovação só decide se ela pode seguir para essa discussão de adoção.
