@@ -14,6 +14,24 @@ em ``src/models/README.md``. O MAE absoluto não é comparável entre rodadas
 onde o dataset mudou de estrutura (ex.: adição de surtos, demanda censurada):
 um MAE maior não é necessariamente um modelo pior, pode ser um problema mais
 difícil. Detalhes em docs/arquitetura/RESULTADOS_MODELAGEM.md.
+
+Objetivo de treino: regressão quantílica (``reg:quantileerror``,
+``quantile_alpha=QUANTILE_ALPHA_OFICIAL``), não erro quadrático médio (Issue
+#86). Treinar para MAE/MSE penaliza subestimar e superestimar a demanda
+igualmente; o diagnóstico da Issue #76 mostrou que isso reduz o erro médio e
+ainda piora ruptura nos poucos picos que mais custam, porque otimizar erro
+médio não é o mesmo que evitar falta de estoque. A Issue #78 testou
+candidatos de regressão quantílica (``quantile_alpha=0.6`` e ``0.8``,
+``src/models/modelo_demanda_assimetrico.py``) nas mesmas janelas do
+protocolo (Issue #77); a Issue #84 estendeu a janela de avaliação para 28
+dias (a de 7 tinha pouco poder de detecção, dado o prazo de entrega mínimo
+de 5 dias) e aprovou formalmente ``quantile_alpha=0.8`` — redução de 33% no
+custo de compra emergencial e 46% em episódios de ruptura frente ao modelo
+simétrico anterior, sem piora de vencimento, consistente em 4 de 4 janelas
+(ver ``docs/avaliacao/revalidacao_janela_longa/vs_modelo_atual/decisao.json``).
+``treinar_modelo``/``avaliar_validacao_temporal`` aceitam ``quantile_alpha=None``
+para reproduzir o objetivo simétrico anterior (histórico, usado só para
+comparação — não é mais o padrão de produção).
 """
 
 from __future__ import annotations
@@ -44,6 +62,7 @@ __all__ = [
     "validar_saida_modelo",
     "COLUNAS_SAIDA",
     "HIPERPARAMETROS_XGBOOST",
+    "QUANTILE_ALPHA_OFICIAL",
 ]
 
 COLUNAS_SAIDA = [
@@ -81,6 +100,16 @@ HIPERPARAMETROS_XGBOOST: dict = {
     "n_jobs": 1,
 }
 
+# Objetivo de treino oficial (Issue #86, aprovado formalmente pela Issue #84).
+# `quantile_alpha > 0.5` desloca a previsão acima da mediana condicional do
+# consumo, penalizando mais subestimar do que superestimar — reduz a
+# frequência de ruptura, ao custo de superestimar mais nos dias comuns.
+# Separado de `HIPERPARAMETROS_XGBOOST` de propósito: esse dict é reusado por
+# `src/models/modelo_demanda_assimetrico.py`, que já passa `objective`/
+# `quantile_alpha` explicitamente — misturar as duas fontes causaria
+# `TypeError: got multiple values for keyword argument`.
+QUANTILE_ALPHA_OFICIAL: float = 0.8
+
 
 def preparar_dados_supervisionados(
     dados_features: pd.DataFrame, horizonte: int = HORIZONTE_PREVISAO_DIAS
@@ -111,8 +140,20 @@ def treinar_modelo(
     horizonte: int = HORIZONTE_PREVISAO_DIAS,
     n_estimators: int = 500,
     random_state: int = 42,
+    quantile_alpha: float | None = QUANTILE_ALPHA_OFICIAL,
 ) -> ModeloDemanda:
-    #Treina um XGBoost compartilhado entre medicamentos e horizontes (ver docstring do modulo).
+    """Treina um XGBoost compartilhado entre medicamentos e horizontes (ver docstring do módulo).
+
+    ``quantile_alpha`` usa o padrão oficial (Issue #86) quando omitido.
+    Passe ``quantile_alpha=None`` para reproduzir o objetivo simétrico
+    (erro quadrático médio) usado antes da Issue #86 — histórico, para
+    comparação, não é mais o padrão de produção.
+    """
+    if quantile_alpha is not None and not 0.5 < quantile_alpha < 1.0:
+        raise ValueError(
+            "quantile_alpha deve estar estritamente entre 0.5 e 1.0 para "
+            "penalizar subestimação mais que superestimação."
+        )
     supervisionado = preparar_dados_supervisionados(dados_features, horizonte)
     colunas_preditivas = _colunas_preditivas(supervisionado)
     entrada = supervisionado[colunas_preditivas]
@@ -125,9 +166,13 @@ def treinar_modelo(
         remainder="passthrough",
         verbose_feature_names_out=False,
     )
+    parametros_objetivo = (
+        {} if quantile_alpha is None else {"objective": "reg:quantileerror", "quantile_alpha": quantile_alpha}
+    )
     regressor = XGBRegressor(
         n_estimators=n_estimators,
         random_state=random_state,
+        **parametros_objetivo,
         **HIPERPARAMETROS_XGBOOST,
     )
     pipeline = Pipeline([("pre_processamento", pre_processador), ("regressor", regressor)])
@@ -194,6 +239,7 @@ def avaliar_validacao_temporal(
     data_corte: str | pd.Timestamp,
     horizonte: int = HORIZONTE_PREVISAO_DIAS,
     n_estimators: int = 500,
+    quantile_alpha: float | None = QUANTILE_ALPHA_OFICIAL,
 ) -> pd.DataFrame:
     #Avalia o modelo em dados futuros, sem embaralhar a série temporal.
     from src.features.pipeline import gerar_features
@@ -206,7 +252,9 @@ def avaliar_validacao_temporal(
         raise ValueError("Não há histórico antes da data de corte para validação.")
 
     features_treino = gerar_features(historico)
-    modelo = treinar_modelo(features_treino, horizonte=horizonte, n_estimators=n_estimators)
+    modelo = treinar_modelo(
+        features_treino, horizonte=horizonte, n_estimators=n_estimators, quantile_alpha=quantile_alpha
+    )
     previsao = prever_demanda(modelo, features_treino, corte, horizonte=horizonte)
     realizado = bruto[(bruto["data"] > corte) & (bruto["data"] <= corte + pd.Timedelta(days=horizonte))][
         ["medicamento_id", "data", "consumo_unidades"]

@@ -226,8 +226,43 @@ def gerar_relatorio_trimestral(resultados_mensais: dict[str, pd.DataFrame]) -> s
     for _, linha in consolidado.iterrows():
         percentual = "—" if pd.isna(linha["reducao_pct"]) else f"{linha['reducao_pct']:.1f}%"
         linhas.append(f"| {linha['metrica']} | {linha['baseline']:.2f} | {linha['modelo_ml']:.2f} | {linha['reducao']:.2f} | {percentual} |")
-    linhas += ["", "## Leitura", "", "No recorte de três meses, o modelo não demonstra ganho operacional consistente frente ao baseline. A comparação deve orientar novos ajustes e validação antes de qualquer uso real."]
+    linhas += ["", "## Leitura", "", _leitura_trimestral(resultados_mensais, consolidado)]
     return "\n".join(linhas) + "\n"
+
+
+def _leitura_trimestral(resultados_mensais: dict[str, pd.DataFrame], consolidado: pd.DataFrame) -> str:
+    """Deriva a conclusão do consolidado — nunca escrita à mão, para não ficar desatualizada.
+
+    Uma versão anterior deste relatório citava, em texto fixo, "o modelo não
+    demonstra ganho operacional consistente frente ao baseline" — verdade
+    quando foi escrita, mas passou a contradizer os próprios números da
+    tabela acima assim que o modelo mudou (Issue #86). Esta função deriva a
+    leitura da mesma tabela sempre, para isso não se repetir.
+    """
+    custo = consolidado.set_index("metrica").loc["custo_compras_emergenciais_reais"]
+    reducao_custo_pct = custo["reducao_pct"]
+    reducoes_mensais_custo = [
+        comparacao.set_index("metrica").loc["custo_compras_emergenciais_reais", "reducao_pct"]
+        for comparacao in resultados_mensais.values()
+    ]
+    consistente = all(pct > 0 for pct in reducoes_mensais_custo if pd.notna(pct))
+
+    if pd.isna(reducao_custo_pct) or reducao_custo_pct <= 0:
+        return (
+            "No recorte de três meses, o modelo não demonstra ganho operacional consistente "
+            "frente ao baseline. A comparação deve orientar novos ajustes e validação antes de "
+            "qualquer uso real."
+        )
+    qualificador = (
+        "de forma consistente (redução positiva em todos os meses avaliados)"
+        if consistente
+        else "mas não de forma consistente (pelo menos um mês sem redução)"
+    )
+    return (
+        f"No recorte de três meses, o modelo reduz o custo de compra emergencial em "
+        f"{reducao_custo_pct:.1f}% frente ao baseline, {qualificador}. Ainda é simulação sobre "
+        "dados sintéticos, não evidência de piloto real."
+    )
 
 
 def main() -> None:
