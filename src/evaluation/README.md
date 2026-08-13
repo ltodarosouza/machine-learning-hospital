@@ -24,9 +24,9 @@ Gera [`docs/arquitetura/RESULTADOS_MODELAGEM.md`](../../docs/arquitetura/RESULTA
 
 **Reprodutibilidade determinística (Issue #75):** o treino usa `n_jobs=1` de propósito — verificamos que `n_jobs=-1` faz o XGBoost produzir modelos diferentes dependendo do número de núcleos da máquina (mesmo com `random_state` fixo), o que causava contagens de "medicamento vencedor" diferentes entre ambientes. Com `n_jobs=1`, duas execuções no mesmo ambiente produzem o relatório byte a byte idêntico (verificado rodando `scripts/relatorio_final.py` duas vezes seguidas). A contagem de vencedores também deixou de ser escrita à mão: `contar_vencedores()` deriva sempre da própria tabela do relatório, coberto por teste em `tests/test_comparar_modelos.py`.
 
-**Resultado atual** (dataset com as 4 issues de realismo do gerador — #58-#61 — já aplicadas, modelo retunado): o modelo de ML reduz o MAE agregado em **8,8%** frente ao baseline (14,15 vs. 15,52 unidades/dia), vencendo em **16 dos 20** medicamentos. **Reportado sem maquiagem.** O MAE absoluto não é comparável a rodadas anteriores (era ~9-10) — o dataset ficou estruturalmente mais variável (surtos, demanda censurada), não é o modelo piorando.
+**Resultado atual** (modelo oficial treinado com `quantile_alpha=0.8` desde a Issue #86 — ver abaixo): o modelo de ML reduz o MAE agregado em só **1,8%** frente ao baseline (15,24 vs. 15,52 unidades/dia) e o MAPE piora (28,9% vs. 22,7%), vencendo em **9 dos 20** medicamentos. **Reportado sem maquiagem — e a piora de MAE/MAPE é esperada, não um bug:** o objetivo de treino deixou de ser "acertar em média" (o que MAE mede) e passou a ser "não subestimar os picos" (regressão quantílica), de propósito — são objetivos diferentes, e otimizar um piora ligeiramente o outro. O número que importa para decidir isso é o impacto operacional, não o MAE — ver `impacto_simulado.py` logo abaixo.
 
-**Achado da rodada anterior (ainda relevante):** apesar do MAE melhor, a simulação de impacto (`impacto_simulado.py`, abaixo) mostra o modelo causando mais episódios de ruptura que o baseline — embora, nesta rodada com dados corrigidos, o custo agregado tenha ficado praticamente empatado. Ver `src/models/README.md` para a hipótese de por que isso acontece (MAE não é a métrica certa para evitar ruptura) — não escondemos esse resultado, é informação real.
+**Trade-off documentado, não escondido:** um modelo com MAE pior pode ainda assim ser melhor operacionalmente, porque MAE trata subestimar e superestimar como erros equivalentes, mas só subestimar causa ruptura. Esse foi exatamente o achado da Issue #76 (diagnóstico por medicamento/mês) que motivou a Issue #78 (testar previsão assimétrica) — ver `src/models/README.md` para a cadeia completa de decisões (#76 → #78 → #84 → #86).
 
 Histórico completo das rodadas de melhoria (troca de algoritmo, extensão do dataset, correção de vazamento de normalização, adição de realismo no gerador, retuning, reprodutibilidade): ver [`src/models/README.md`](../models/README.md).
 
@@ -41,6 +41,8 @@ python src/evaluation/impacto_simulado.py
 ```
 
 Gera [`docs/arquitetura/RESULTADOS_IMPACTO_SIMULADO.md`](../../docs/arquitetura/RESULTADOS_IMPACTO_SIMULADO.md). **Limitação explícita no próprio relatório:** é simulação sobre dado sintético, não piloto real. O consumo segue FEFO; como o MVP não possui histórico completo de movimentações por lote, ele reconstrói em cada corte um snapshot sintético e determinístico de lotes, cuja quantidade bate com o saldo agregado naquela data e cujas entradas e validades são temporalmente compatíveis com ela. Compras simuladas recebem validade de 365 dias.
+
+**Resultado atual** (modelo `quantile_alpha=0.8`, Issue #86): redução de **31,5%** no custo de compra emergencial e **40,1%** em episódios de ruptura frente ao baseline, no consolidado dos 3 meses simulados — a leitura final do relatório é derivada da própria tabela (`_leitura_trimestral`), nunca escrita à mão, para não ficar contradizendo os números depois que o modelo mudar de novo.
 
 ## `relatorio_operacional.py` (Issue #76) — pronto
 

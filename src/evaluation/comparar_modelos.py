@@ -31,6 +31,7 @@ from src.evaluation.metricas_preditivas import calcular_metricas
 from src.models.baseline import JANELA_PADRAO_DIAS, gerar_previsoes_baseline_periodo
 from src.models.modelo_demanda import (
     HIPERPARAMETROS_XGBOOST,
+    QUANTILE_ALPHA_OFICIAL,
     avaliar_validacao_temporal,
 )
 from src.utils.config import HORIZONTE_PREVISAO_DIAS, PERIODO_FIM, PERIODO_INICIO
@@ -200,7 +201,7 @@ def gerar_relatorio_markdown(metricas: pd.DataFrame, data_inicio_teste: str, dat
         f"- **Período avaliado:** {data_inicio_teste} a {data_fim_teste} (dataset completo: {PERIODO_INICIO} a {PERIODO_FIM})",
         f"- **Ambiente:** Python {versoes['python']}, pandas {versoes['pandas']}, numpy {versoes['numpy']}, scikit-learn {versoes['scikit-learn']}, xgboost {versoes['xgboost']} (ver `requirements.txt` para as versões fixadas)",
         f"- **Baseline:** média móvel de {JANELA_PADRAO_DIAS} dias (`src/models/baseline.py::prever_baseline`)",
-        f"- **Modelo de ML:** XGBoost (`XGBRegressor`, `n_estimators={N_ESTIMATORS_PADRAO}`, `random_state={RANDOM_STATE_PADRAO}`, `{hiperparametros_texto}`) — hiperparâmetros vêm de `src/models/modelo_demanda.py::HIPERPARAMETROS_XGBOOST`, fonte única (este texto nunca é editado à mão)",
+        f"- **Modelo de ML:** XGBoost (`XGBRegressor`, `n_estimators={N_ESTIMATORS_PADRAO}`, `random_state={RANDOM_STATE_PADRAO}`, `objective=reg:quantileerror`, `quantile_alpha={QUANTILE_ALPHA_OFICIAL}`, `{hiperparametros_texto}`) — objetivo aprovado pela Issue #84, demais hiperparâmetros vêm de `src/models/modelo_demanda.py::HIPERPARAMETROS_XGBOOST`, fonte única (este texto nunca é editado à mão)",
         f"- **Medicamentos onde o modelo venceu:** {n_vencedores} de {n_total} (derivado da tabela acima, coberto por teste — ver `tests/test_comparar_modelos.py`)",
         "- **Comando para regenerar este relatório:** `python src/evaluation/comparar_modelos.py`",
         "",

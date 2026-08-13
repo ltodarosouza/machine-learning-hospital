@@ -33,6 +33,15 @@ dias seguintes. Os intervalos de saída usam o desvio dos resíduos de treino po
 medicamento; são faixas empíricas para comunicação no MVP, não intervalos de
 confiança formais.
 
+**Objetivo de treino (Issue #86):** regressão quantílica (`objective="reg:quantileerror"`,
+`quantile_alpha=QUANTILE_ALPHA_OFICIAL`, atualmente `0.8`), não erro quadrático
+médio. `treinar_modelo`/`avaliar_validacao_temporal` usam esse padrão
+automaticamente quando `quantile_alpha` não é informado; passe
+`quantile_alpha=None` explicitamente para reproduzir o objetivo simétrico
+anterior à Issue #86 (histórico, só para comparação — não é mais o padrão de
+produção). Motivação e resultado completos na seção "Adoção da previsão
+assimétrica" abaixo.
+
 ```bash
 python src/models/modelo_demanda.py
 ```
@@ -154,7 +163,36 @@ divergindo. As Issues #76-#78 (diagnóstico por medicamento/mês, objetivo
 operacional formal, treino com perda assimétrica) foram abertas
 especificamente para investigar e endereçar isso.
 
+### Adoção da previsão assimétrica (Issue #86)
+
+A Issue #78 testou candidatos de regressão quantílica (`quantile_alpha=0.6`
+e `0.8`) contra o modelo simétrico acima, nas janelas oficiais do protocolo
+(Issue #77) — nenhum foi aprovado, mas o diagnóstico revelou por quê: a
+janela de avaliação de 7 dias é menor que o prazo de entrega mínimo do MVP
+(5 dias), então quase nenhum pedido feito durante a janela chega a tempo de
+afetar a própria janela avaliada. A Issue #84 estendeu a janela de
+avaliação para 28 dias (mantendo o retreino do modelo a cada 7 dias — o
+contrato de horizonte do MVP não muda) e revalidou `quantile_alpha=0.8`
+formalmente: **aprovado**, com redução de 33% no custo de compra
+emergencial e 46% em episódios de ruptura frente ao modelo simétrico, sem
+piora de vencimento, consistente em 4 de 4 janelas
+(`docs/avaliacao/revalidacao_janela_longa/vs_modelo_atual/decisao.json`).
+
+A Issue #86 promoveu esse resultado a padrão de produção: `modelo_demanda.py::treinar_modelo`
+passou a usar `quantile_alpha=QUANTILE_ALPHA_OFICIAL` (`0.8`) por padrão —
+todo consumidor que já chamava `treinar_modelo`/`avaliar_validacao_temporal`
+sem especificar o objetivo (dashboard, `comparar_modelos.py`,
+`impacto_simulado.py`, `relatorio_operacional.py`, `scripts/relatorio_final.py`)
+passou a treinar com o novo objetivo automaticamente, sem precisar de
+nenhuma outra mudança de código. `quantile_alpha=None` continua disponível
+para reproduzir o objetivo simétrico anterior, só para comparação histórica.
+
 ## `modelo_demanda_assimetrico.py` (Issue #78) — candidato experimental
+
+**Nota (Issue #86):** `quantile_alpha=0.8` já é o padrão de produção em
+`modelo_demanda.py` (seção acima) — este módulo continua existindo para
+testar *outros* valores de `quantile_alpha` como candidatos futuros contra
+o modelo oficial (agora ele mesmo quantílico), fora do escopo da Issue #86.
 
 Testa a hipótese acima (MAE não é a métrica certa para evitar ruptura,
 porque trata subestimar e superestimar igual) treinando com regressão

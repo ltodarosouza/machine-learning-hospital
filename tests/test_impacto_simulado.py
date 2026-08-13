@@ -1,6 +1,6 @@
 import pandas as pd
 
-from src.evaluation.impacto_simulado import comparar_cenarios, simular_impacto
+from src.evaluation.impacto_simulado import comparar_cenarios, gerar_relatorio_trimestral, simular_impacto
 
 
 def _entrada(previsao: list[float]) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
@@ -71,3 +71,37 @@ def test_cria_saldo_residual_sem_vazar_lote_futuro() -> None:
     # O lote só entrou depois do corte. O saldo de 31/12 continua existindo,
     # mas recebe validade residual em vez de herdar uma validade futura.
     assert resultado.loc[0, "unidades_vencidas"] == 0.0
+
+
+def _comparacao_mensal(baseline: float, modelo_ml: float) -> pd.DataFrame:
+    metricas = ["episodios_ruptura", "unidades_em_ruptura", "compras_emergenciais_unidades", "custo_compras_emergenciais_reais", "unidades_vencidas", "quantidade_total_recomendada"]
+    dados = {"metrica": metricas, "baseline": [baseline] * len(metricas), "modelo_ml": [modelo_ml] * len(metricas)}
+    df = pd.DataFrame(dados)
+    df["reducao"] = df["baseline"] - df["modelo_ml"]
+    df["reducao_pct"] = df["reducao"].div(df["baseline"].replace(0, pd.NA)) * 100
+    return df
+
+
+def test_leitura_trimestral_reflete_reducao_consistente_de_custo() -> None:
+    """Regressão: uma versão anterior citava, em texto fixo, 'sem ganho operacional
+    consistente' — passou a contradizer a própria tabela do relatório assim que o
+    modelo mudou (Issue #86). A leitura precisa ser derivada, não escrita à mão."""
+    resultados_mensais = {
+        "10": _comparacao_mensal(100.0, 70.0),
+        "11": _comparacao_mensal(100.0, 65.0),
+        "12": _comparacao_mensal(100.0, 60.0),
+    }
+    relatorio = gerar_relatorio_trimestral(resultados_mensais)
+
+    assert "reduz o custo de compra emergencial em 35.0%" in relatorio
+    assert "não demonstra ganho operacional" not in relatorio
+
+
+def test_leitura_trimestral_reporta_falta_de_reducao_sem_maquiagem() -> None:
+    resultados_mensais = {
+        "10": _comparacao_mensal(100.0, 110.0),
+        "11": _comparacao_mensal(100.0, 100.0),
+    }
+    relatorio = gerar_relatorio_trimestral(resultados_mensais)
+
+    assert "não demonstra ganho operacional consistente" in relatorio
