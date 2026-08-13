@@ -9,6 +9,10 @@ dia e contabilizadas separadamente.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from numbers import Real
+
+import numpy as np
 import pandas as pd
 
 from src.data_ingestion.gerar_dataset_sintetico import gerar_lotes_no_corte
@@ -32,14 +36,15 @@ def simular_impacto(
     medicamentos_ref: pd.DataFrame,
     estoque_inicial: pd.DataFrame,
     lotes: pd.DataFrame | None = None,
-    fator_seguranca: float = 0.2,
+    fator_seguranca: float | Mapping[str, float] = 0.2,
 ) -> pd.DataFrame:
     """Simula rupturas, compras emergenciais e custo por medicamento.
 
     ``fator_seguranca`` é a fração da demanda prevista durante o lead time
-    usada como buffer. O estoque agregado no corte é a fonte de verdade para
-    quantidade; os lotes apenas repartem esse saldo por validade. Portanto,
-    lote com entrada posterior ao corte nunca aparece no estoque inicial.
+    usada como buffer. Pode ser um único valor ou um mapa por medicamento,
+    usado pelas políticas de estoque agrupadas da Issue #79. O estoque
+    agregado no corte é a fonte de verdade para quantidade; os lotes apenas
+    repartem esse saldo por validade.
     """
     _validar(previsoes, COLUNAS_PREVISAO, "previsoes")
     _validar(consumo_real, COLUNAS_REAL, "consumo_real")
@@ -47,8 +52,7 @@ def simular_impacto(
     _validar(estoque_inicial, COLUNAS_ESTOQUE, "estoque_inicial")
     if lotes is not None:
         _validar(lotes, COLUNAS_LOTES, "lotes")
-    if fator_seguranca < 0:
-        raise ValueError("fator_seguranca deve ser não negativo.")
+    fatores = _normalizar_fatores_seguranca(fator_seguranca, set(previsoes["medicamento_id"]))
 
     previsao = previsoes[["medicamento_id", "data_previsao", "demanda_prevista"]].copy()
     previsao["data_previsao"] = pd.to_datetime(previsao["data_previsao"])
@@ -77,6 +81,7 @@ def simular_impacto(
         serie = serie.sort_values("data")
         prazo = int(serie["prazo_entrega_dias"].iloc[0])
         preco = float(serie["preco_unitario_reais"].iloc[0])
+        fator_item = fatores[medicamento]
         estoque_inicial_item = float(serie["estoque_disponivel"].iloc[0])
         data_referencia = serie["data"].iloc[0] - pd.Timedelta(days=1)
         lotes_item = lotes[lotes["medicamento_id"] == medicamento].copy()
@@ -87,7 +92,7 @@ def simular_impacto(
         )
         chegadas: dict[pd.Timestamp, float] = {}
         rupturas = emergenciais = custo_emergencial = vencidas = 0.0
-        quantidade_total_recomendada = 0.0
+        quantidade_total_recomendada = estoque_acumulado = 0.0
         episodios = 0
         for _, dia in serie.iterrows():
             data = dia["data"]
@@ -105,7 +110,7 @@ def simular_impacto(
             estoque_lotes = validos
             estoque = sum(quantidade for _, quantidade in estoque_lotes)
             demanda_lead_time = max(float(dia["demanda_prevista"]), 0.0) * max(prazo, 1)
-            pedido = max(demanda_lead_time * (1 + fator_seguranca) - estoque - sum(chegadas.values()), 0.0)
+            pedido = max(demanda_lead_time * (1 + fator_item) - estoque - sum(chegadas.values()), 0.0)
             quantidade_total_recomendada += pedido
             chegada = data + pd.Timedelta(days=prazo)
             chegadas[chegada] = chegadas.get(chegada, 0.0) + pedido
@@ -124,6 +129,7 @@ def simular_impacto(
                 if quantidade > consumido:
                     atualizados.append((validade, quantidade - consumido))
             estoque_lotes = atualizados
+            estoque_acumulado += sum(quantidade for _, quantidade in estoque_lotes)
         resultados.append(
             {
                 "medicamento_id": medicamento,
@@ -133,9 +139,29 @@ def simular_impacto(
                 "custo_compras_emergenciais_reais": custo_emergencial,
                 "unidades_vencidas": vencidas,
                 "quantidade_total_recomendada": quantidade_total_recomendada,
+                "estoque_medio_unidades": estoque_acumulado / len(serie),
             }
         )
     return pd.DataFrame(resultados)
+
+
+def _normalizar_fatores_seguranca(
+    fator_seguranca: float | Mapping[str, float], medicamentos: set[str]
+) -> dict[str, float]:
+    """Valida valor único ou mapa completo, sem fallback silencioso por item."""
+    if isinstance(fator_seguranca, Mapping):
+        if set(fator_seguranca) != medicamentos:
+            raise ValueError("fator_seguranca por medicamento deve cobrir exatamente as previsões.")
+        fatores = dict(fator_seguranca)
+    else:
+        fatores = {medicamento: fator_seguranca for medicamento in medicamentos}
+    for medicamento, fator in fatores.items():
+        if isinstance(fator, (bool, np.bool_)) or not isinstance(fator, Real):
+            raise TypeError(f"fator_seguranca de {medicamento} deve ser numérico.")
+        if not np.isfinite(float(fator)) or fator < 0:
+            raise ValueError(f"fator_seguranca de {medicamento} deve ser finito e não negativo.")
+        fatores[medicamento] = float(fator)
+    return fatores
 
 
 def comparar_cenarios(impacto_baseline: pd.DataFrame, impacto_modelo: pd.DataFrame) -> pd.DataFrame:
