@@ -154,6 +154,30 @@ divergindo. As Issues #76-#78 (diagnóstico por medicamento/mês, objetivo
 operacional formal, treino com perda assimétrica) foram abertas
 especificamente para investigar e endereçar isso.
 
+## `modelo_demanda_assimetrico.py` (Issue #78) — candidato experimental
+
+Testa a hipótese acima (MAE não é a métrica certa para evitar ruptura,
+porque trata subestimar e superestimar igual) treinando com regressão
+quantílica do XGBoost (`objective="reg:quantileerror"`, `quantile_alpha`
+entre 0.5 e 1.0 exclusive) em vez de erro quadrático médio. `quantile_alpha`
+acima de 0.5 desloca a previsão para cima da mediana condicional — reduz a
+frequência de subestimar, ao custo de superestimar mais nos dias comuns.
+
+Reaproveita toda a estrutura de `modelo_demanda.py` (preparação de dados,
+codificação de medicamento, artefato `ModeloDemanda`, `prever_demanda`) — só
+troca a função de perda do `XGBRegressor`. **Nunca** grava
+`models_output/modelo_demanda.joblib`; esse artefato continua vindo
+exclusivamente do modelo oficial. `src/evaluation/avaliacao_previsao_assimetrica.py`
+avalia os candidatos nas mesmas quatro janelas oficiais do protocolo da
+Issue #77 e usa a mesma função `avaliar_aprovacao` — contra o baseline
+(vocabulário literal do protocolo) e contra o modelo atual (pergunta
+operacional: o candidato substituiria o que está em produção?). Resultado
+em [`docs/avaliacao/RESULTADOS_PREVISAO_ASSIMETRICA.md`](../../docs/avaliacao/RESULTADOS_PREVISAO_ASSIMETRICA.md).
+
+```bash
+python src/evaluation/avaliacao_previsao_assimetrica.py
+```
+
 ### Reprodutibilidade da avaliação (Issue #75)
 
 Duas execuções da avaliação, no mesmo commit e mesmo ambiente, chegavam a
