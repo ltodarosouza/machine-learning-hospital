@@ -1,8 +1,8 @@
 # `src/evaluation/`
 
-Métricas de avaliação: precisão dos modelos de previsão (`comparar_modelos.py`) e impacto simulado do motor de recomendação (`impacto_simulado.py`, Issue #17).
+Métricas de avaliação: precisão dos modelos de previsão (`comparar_modelos.py`), impacto simulado do motor de recomendação (`impacto_simulado.py`, Issue #17) e a decomposição desse impacto por medicamento e mês (`relatorio_operacional.py`, Issue #76).
 
-**Comando único recomendado**, que treina o modelo oficial e gera os dois relatórios abaixo numa execução só: `python scripts/relatorio_final.py` (ver `src/models/README.md` para detalhes e flags).
+**Comando único recomendado**, que treina o modelo oficial e gera os três relatórios abaixo numa execução só: `python scripts/relatorio_final.py` (ver `src/models/README.md` para detalhes e flags).
 
 ## `comparar_modelos.py` (Issue #13) — pronto
 
@@ -33,3 +33,15 @@ python src/evaluation/impacto_simulado.py
 ```
 
 Gera [`docs/arquitetura/RESULTADOS_IMPACTO_SIMULADO.md`](../../docs/arquitetura/RESULTADOS_IMPACTO_SIMULADO.md). **Limitação explícita no próprio relatório:** é simulação sobre dado sintético, não piloto real. O consumo segue FEFO; como o MVP não possui histórico completo de movimentações por lote, ele reconstrói em cada corte um snapshot sintético e determinístico de lotes, cuja quantidade bate com o saldo agregado naquela data e cujas entradas e validades são temporalmente compatíveis com ela. Compras simuladas recebem validade de 365 dias.
+
+## `relatorio_operacional.py` (Issue #76) — pronto
+
+Os dois relatórios acima só mostram totais agregados — suficiente para saber *que* o modelo de ML piora ruptura/custo em algum lugar, mas não *onde*. Este módulo decompõe as mesmas métricas (MAE, MAPE, viés, subestimação, superestimação, episódios de ruptura, unidades em ruptura, custo de compra emergencial, unidades vencidas) até **medicamento × mês**, calculando previsão e impacto sobre exatamente o mesmo corte temporal (pré-requisito: reprodutibilidade da Issue #75).
+
+```bash
+python src/evaluation/relatorio_operacional.py
+```
+
+Gera [`docs/arquitetura/RESULTADOS_OPERACIONAL_POR_MEDICAMENTO.md`](../../docs/arquitetura/RESULTADOS_OPERACIONAL_POR_MEDICAMENTO.md), com uma tabela detalhada por mês/medicamento e um destaque separado dos medicamentos que mais pioram e mais melhoram no consolidado (soma da diferença ML − baseline em custo de compra emergencial, episódios de ruptura e unidades vencidas) — para transformar "o agregado piorou" em "estes N medicamentos, nestes meses, respondem pela piora", que é o que orienta a Issue #79 (calibração de política de estoque).
+
+`vies` é o erro médio com sinal (previsto − real): negativo indica subestimação sistemática (o tipo de erro que causa ruptura), positivo indica superestimação sistemática (o tipo que causa compra/vencimento em excesso). `unidades_subestimadas` e `unidades_superestimadas` decompõem o erro absoluto total na direção em que ele ocorreu — um MAE parecido entre baseline e modelo pode esconder uma mudança de direção do erro, por isso as duas colunas nunca são resumidas só no MAE agregado.
