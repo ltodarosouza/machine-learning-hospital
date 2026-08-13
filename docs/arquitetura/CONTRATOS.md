@@ -211,6 +211,14 @@ o nível intermediário.
 
 - Consome saída de `models` (comparar `demanda_prevista` vs. `consumo_unidades` real) e saída de `recommendation` (simular economia/redução de ruptura vs. baseline).
 - Definir aqui o baseline de comparação (ex.: média móvel simples ou ponto de pedido fixo) — ver Issues de baseline (#11) e avaliação (#13).
+- O protocolo de aprovação da Issue #77 é implementado em
+  `src/evaluation/protocolo_validacao_operacional.py`. Baseline e candidato
+  devem fornecer uma linha por `janela_id`, nas mesmas janelas, com MAE, MAPE,
+  viés, subestimação, superestimação, custo emergencial, episódios/unidades em
+  ruptura, unidades vencidas e quantidade recomendada. A decisão retorna
+  `aprovado`, `rejeitado` ou `dados_insuficientes`; entradas incompletas nunca
+  são aprovadas. A especificação versionada está em
+  `docs/avaliacao/PROTOCOLO_VALIDACAO_OPERACIONAL.md`.
 
 ---
 
@@ -237,4 +245,5 @@ Registrar aqui sempre que um contrato mudar depois de combinado, com data e quem
 | 2026-08-12 | Issue #25 | Formalizado o pipeline fim a fim: o dashboard passa a consumir o mesmo artefato serializado que foi treinado e validado pelo pipeline, eliminando o retreino implícito com outra configuração | models, recommendation, dashboard |
 | 2026-08-12 | Retuning pós #58-#61 | Hiperparâmetros do XGBoost retunados (`max_depth` 5→7) depois que as 4 issues de realismo do gerador mudaram a estrutura do dataset. Adicionado `scripts/relatorio_final.py`, comando único que retreina o modelo e gera os relatórios de precisão (`RESULTADOS_MODELAGEM.md`) e de impacto simulado (`RESULTADOS_IMPACTO_SIMULADO.md`) juntos, para eles nunca mais ficarem dessincronizados entre si ou do código | models, evaluation |
 | 2026-08-12 | Issue #75 | Avaliação tornada determinística: `n_jobs=1` fixo (era `-1`, causava resultados diferentes por número de núcleos da máquina), hiperparâmetros centralizados em `HIPERPARAMETROS_XGBOOST` (fonte única), contagem de "medicamento vencedor" calculada automaticamente (nunca mais escrita à mão), relatório passa a registrar hash do dataset e versões do ambiente, `requirements.txt` fixado com versões exatas (removido `prophet`, nunca usado) | models, evaluation |
+| 2026-08-13 | Issue #77 | Formalizado o protocolo operacional versionado: janelas comuns sem overlap, métricas preditivas e operacionais obrigatórias, limites objetivos de aprovação e artefatos auditáveis CSV/JSON/Markdown | evaluation |
 | 2026-08-13 | Coerência temporal da simulação | `lotes.csv` é uma fotografia do fim do dataset; para cada corte, a simulação gera um snapshot sintético, determinístico e temporalmente compatível com o `estoque_disponivel` daquela data. Lotes futuros não vazam para a avaliação contrafactual; como não há histórico completo por lote, o snapshot não representa os lotes físicos reais do corte. | evaluation |

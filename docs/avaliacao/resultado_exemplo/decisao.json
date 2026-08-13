@@ -1,0 +1,18 @@
+{
+  "aprovado": false,
+  "candidato": "modelo_atual",
+  "janelas_avaliadas": 4,
+  "janelas_com_meta_atingida": 0,
+  "motivos_aprovacao": [
+    "Sem piora operacional relevante nas métricas de bloqueio."
+  ],
+  "motivos_rejeicao": [
+    "Redução agregada de custo 0.79% abaixo da meta de 10.00%.",
+    "Consistência insuficiente: meta atingida em 0/4 janelas."
+  ],
+  "reducao_custo_emergencial_pct": 0.7899619882517306,
+  "status": "rejeitado",
+  "variacao_episodios_ruptura_pct": -2.564102564102566,
+  "variacao_unidades_ruptura_pct": -0.9606179984571694,
+  "variacao_vencimento_pct": 0.0
+}

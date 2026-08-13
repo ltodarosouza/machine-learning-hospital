@@ -2,6 +2,14 @@
 
 Métricas de avaliação: precisão dos modelos de previsão (`comparar_modelos.py`), impacto simulado do motor de recomendação (`impacto_simulado.py`, Issue #17) e a decomposição desse impacto por medicamento e mês (`relatorio_operacional.py`, Issue #76).
 
+## Protocolo operacional (Issue #77)
+
+`protocolo_validacao_operacional.py` é a fonte única de verdade para aprovação
+de candidatos. Ele gera janelas temporais comuns, consolida as métricas
+preditivas e operacionais dos módulos existentes e aplica limites objetivos.
+O protocolo completo está em
+[`docs/avaliacao/PROTOCOLO_VALIDACAO_OPERACIONAL.md`](../../docs/avaliacao/PROTOCOLO_VALIDACAO_OPERACIONAL.md).
+
 **Comando único recomendado**, que treina o modelo oficial e gera os três relatórios abaixo numa execução só: `python scripts/relatorio_final.py` (ver `src/models/README.md` para detalhes e flags).
 
 ## `comparar_modelos.py` (Issue #13) — pronto

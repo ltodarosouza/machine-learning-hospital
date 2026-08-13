@@ -27,8 +27,12 @@ from pathlib import Path
 import pandas as pd
 
 sys.path.append(str(Path(__file__).resolve().parents[2]))
+from src.evaluation.metricas_preditivas import calcular_metricas
 from src.models.baseline import JANELA_PADRAO_DIAS, gerar_previsoes_baseline_periodo
-from src.models.modelo_demanda import HIPERPARAMETROS_XGBOOST, avaliar_validacao_temporal
+from src.models.modelo_demanda import (
+    HIPERPARAMETROS_XGBOOST,
+    avaliar_validacao_temporal,
+)
 from src.utils.config import HORIZONTE_PREVISAO_DIAS, PERIODO_FIM, PERIODO_INICIO
 
 DADOS_MODELAGEM = Path(__file__).resolve().parents[2] / "data" / "processed" / "consumo_medicamentos.csv"
@@ -70,31 +74,6 @@ def avaliar_modelo_periodo(
     resultado = pd.concat(janelas, ignore_index=True)
     resultado["metodo"] = "modelo_ml"
     return resultado
-
-
-def calcular_metricas(comparacao: pd.DataFrame) -> pd.DataFrame:
-    """MAE e MAPE por medicamento e método. MAPE ignora dias com consumo real 0 (divisão por zero)."""
-    comparacao = comparacao.copy()
-    comparacao["erro_absoluto"] = (comparacao["consumo_unidades"] - comparacao["demanda_prevista"]).abs()
-
-    com_consumo_positivo = comparacao[comparacao["consumo_unidades"] > 0].copy()
-    com_consumo_positivo["erro_percentual"] = (
-        com_consumo_positivo["erro_absoluto"] / com_consumo_positivo["consumo_unidades"]
-    ) * 100
-
-    mae = comparacao.groupby(["metodo", "medicamento_id"])["erro_absoluto"].mean().rename("mae")
-    mape = com_consumo_positivo.groupby(["metodo", "medicamento_id"])["erro_percentual"].mean().rename("mape")
-
-    por_medicamento = pd.concat([mae, mape], axis=1).reset_index()
-
-    agregado = (
-        comparacao.groupby("metodo")["erro_absoluto"].mean().rename("mae").reset_index()
-    )
-    agregado_mape = com_consumo_positivo.groupby("metodo")["erro_percentual"].mean().rename("mape").reset_index()
-    agregado = agregado.merge(agregado_mape, on="metodo")
-    agregado["medicamento_id"] = "TODOS"
-
-    return pd.concat([por_medicamento, agregado[["metodo", "medicamento_id", "mae", "mape"]]], ignore_index=True)
 
 
 def _commit_atual() -> str:
