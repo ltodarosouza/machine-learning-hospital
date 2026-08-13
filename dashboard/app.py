@@ -1,10 +1,16 @@
 """Dashboard do Machine Learning Hospital conectado ao pipeline real."""
 
+from __future__ import annotations
+
 from pathlib import Path
 import sys
+from typing import TYPE_CHECKING
 
 import pandas as pd
 import streamlit as st
+
+if TYPE_CHECKING:
+    from src.models.artefato import ModeloDemanda
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -63,15 +69,22 @@ def gerar_dados_painel(
     pedidos: pd.DataFrame,
     lotes: pd.DataFrame,
     n_estimators: int = 100,
+    modelo: ModeloDemanda | None = None,
 ) -> pd.DataFrame:
     """Executa o pipeline de previsão e recomendação consumido pelo painel.
 
     O dashboard apenas orquestra os módulos: previsão, estoque de segurança e
     motor de recomendação mantêm suas respectivas regras de negócio. ``nome`` e
     ``categoria`` são enriquecimento de apresentação vindo do cadastro estático.
+    A aplicação fornece o artefato oficial em ``modelo``; o treino local existe
+    apenas para chamadas isoladas e testes desta função.
     """
     from src.features.pipeline import gerar_features
-    from src.models.modelo_demanda import prever_demanda, treinar_modelo
+    from src.models.modelo_demanda import (
+        prever_demanda,
+        treinar_modelo,
+        validar_saida_modelo,
+    )
     from src.recommendation.estoque_seguranca import calcular_estoque_seguranca
     from src.recommendation.motor_recomendacao import gerar_recomendacoes
 
@@ -82,8 +95,10 @@ def gerar_dados_painel(
         raise ValueError("O histórico de consumo não possui uma data de corte válida.")
 
     features = gerar_features(consumo)
-    modelo = treinar_modelo(features, n_estimators=n_estimators)
+    if modelo is None:
+        modelo = treinar_modelo(features, n_estimators=n_estimators)
     previsoes = prever_demanda(modelo, features, data_corte)
+    validar_saida_modelo(previsoes, set(consumo["medicamento_id"].unique()))
     seguranca = calcular_estoque_seguranca(consumo, medicamentos)
     estoque = consumo[["medicamento_id", "data", "estoque_disponivel"]]
     recomendacoes = gerar_recomendacoes(
@@ -105,12 +120,15 @@ def gerar_dados_painel(
 
 @st.cache_data(show_spinner="Calculando recomendações reais do pipeline...")
 def carregar_dados() -> pd.DataFrame:
-    """Carrega recomendações reais, sem recorrer ao CSV mockado."""
+    """Carrega recomendações produzidas pelo artefato oficial do pipeline."""
+    from src.models.artefato import carregar_modelo
+
     return gerar_dados_painel(
         pd.read_csv(ARQUIVO_CONSUMO),
         pd.read_csv(ARQUIVO_MEDICAMENTOS),
         pd.read_csv(ARQUIVO_PEDIDOS),
         pd.read_csv(ARQUIVO_LOTES),
+        modelo=carregar_modelo(),
     )
 
 
@@ -216,7 +234,9 @@ def carregar_dados_previsao(caminho: Path = ARQUIVO_CONSUMO) -> tuple[pd.DataFra
     corte = inicio - pd.Timedelta(days=1)
 
     baseline = avaliar_baseline_periodo(dados, inicio.date().isoformat(), fim.date().isoformat())
-    modelo = avaliar_validacao_temporal(dados, data_corte=corte, n_estimators=100)
+    # A validação precisa retreinar apenas até o corte histórico, mas mantém a
+    # configuração oficial de 500 árvores usada pelo artefato de produção.
+    modelo = avaliar_validacao_temporal(dados, data_corte=corte)
     modelo["metodo"] = "modelo_ml"
 
     comparacao = pd.concat([baseline, modelo], ignore_index=True)
