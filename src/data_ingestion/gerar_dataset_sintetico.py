@@ -482,14 +482,35 @@ def _distribuir_quantidade_inteira(total: float, pesos: np.ndarray) -> np.ndarra
     return base.astype(float)
 
 
-def gerar_lotes(estoque_final: pd.DataFrame, medicamentos_ref: pd.DataFrame, rng: np.random.Generator) -> pd.DataFrame:
+def gerar_lotes(
+    estoque_historico: pd.DataFrame,
+    medicamentos_ref: pd.DataFrame,
+    rng: np.random.Generator,
+    data_referencia: str | pd.Timestamp = PERIODO_FIM,
+) -> pd.DataFrame:
+    """Gera a fotografia de lotes coerente com o estoque em ``data_referencia``.
+
+    O gerador principal usa o fim do dataset. A avaliação contrafactual pode
+    chamar esta mesma função em um corte histórico (por exemplo, 30/09), para
+    não reutilizar a composição de lotes de dezembro ao simular outubro.
+    """
     linhas = []
-    fim = pd.Timestamp(PERIODO_FIM)
+    referencia = pd.Timestamp(data_referencia)
+    estoque_historico = estoque_historico.copy()
+    estoque_historico["data"] = pd.to_datetime(estoque_historico["data"])
 
     for i, item in medicamentos_ref.iterrows():
         rng_item = np.random.default_rng(SEED + 2000 + i)
         med_id = item["medicamento_id"]
-        qtd_final = float(estoque_final.loc[estoque_final["medicamento_id"] == med_id, "estoque_disponivel"].iloc[-1])
+        historico_item = estoque_historico[
+            (estoque_historico["medicamento_id"] == med_id)
+            & (estoque_historico["data"] <= referencia)
+        ].sort_values("data")
+        if historico_item.empty:
+            raise ValueError(
+                f"Sem estoque para {med_id} até a data de referência {referencia.date()}."
+            )
+        quantidade_no_corte = float(historico_item["estoque_disponivel"].iloc[-1])
 
         n_lotes = int(rng_item.integers(2, 4))
 
@@ -502,11 +523,11 @@ def gerar_lotes(estoque_final: pd.DataFrame, medicamentos_ref: pd.DataFrame, rng
         else:
             pesos = rng_item.dirichlet(np.ones(n_lotes))
 
-        quantidades = _distribuir_quantidade_inteira(qtd_final, pesos)
+        quantidades = _distribuir_quantidade_inteira(quantidade_no_corte, pesos)
 
         for lote_idx in range(n_lotes):
             dias_desde_entrada = int(rng_item.integers(5, 120))
-            data_entrada = fim - pd.Timedelta(days=dias_desde_entrada)
+            data_entrada = referencia - pd.Timedelta(days=dias_desde_entrada)
 
             if med_id in MEDICAMENTOS_RISCO_VENCIMENTO and lote_idx == 0:
                 # validade curta o bastante para não dar tempo de consumir no ritmo
@@ -521,7 +542,7 @@ def gerar_lotes(estoque_final: pd.DataFrame, medicamentos_ref: pd.DataFrame, rng
             else:
                 dias_ate_validade = int(rng_item.integers(180, 720))
 
-            data_validade = fim + pd.Timedelta(days=dias_ate_validade)
+            data_validade = referencia + pd.Timedelta(days=dias_ate_validade)
 
             linhas.append(
                 {
@@ -534,6 +555,26 @@ def gerar_lotes(estoque_final: pd.DataFrame, medicamentos_ref: pd.DataFrame, rng
             )
 
     return pd.DataFrame(linhas)
+
+
+def gerar_lotes_no_corte(
+    estoque_historico: pd.DataFrame,
+    data_referencia: str | pd.Timestamp,
+) -> pd.DataFrame:
+    """Cria um snapshot sintético de lotes para uma simulação histórica.
+
+    O MVP guarda apenas a fotografia de lotes do fim do dataset, sem razão
+    física para usá-la meses antes. Como o inventário é sintético,
+    reconstruímos uma composição determinística a partir do saldo agregado
+    existente no próprio corte. A soma continua igual ao estoque daquele dia,
+    dentro da tolerância de arredondamento do contrato.
+    """
+    return gerar_lotes(
+        estoque_historico,
+        montar_medicamentos_ref(),
+        np.random.default_rng(SEED),
+        data_referencia=data_referencia,
+    )
 
 
 # ---------------------------------------------------------------------------

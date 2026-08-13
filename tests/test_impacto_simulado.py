@@ -25,7 +25,49 @@ def test_previsao_melhor_reduz_compras_emergenciais():
 def test_contabiliza_lote_vencido_antes_do_consumo():
     previsao, real, referencia, estoque = _entrada([0.0, 0.0, 0.0])
     lotes = pd.DataFrame(
-        {"medicamento_id": ["med_a"], "quantidade_atual": [10.0], "data_validade": ["2025-12-31"]}
+        {
+            "medicamento_id": ["med_a"],
+            "quantidade_atual": [10.0],
+            "data_entrada": ["2025-12-01"],
+            "data_validade": ["2025-12-31"],
+        }
     )
     resultado = simular_impacto(previsao, real, referencia, estoque, lotes=lotes)
     assert resultado.loc[0, "unidades_vencidas"] == 10.0
+
+
+def test_ignora_lote_que_ainda_nao_existia_no_corte() -> None:
+    previsao, real, referencia, estoque = _entrada([0.0, 0.0, 0.0])
+    real["consumo_unidades"] = 0.0
+    lotes = pd.DataFrame(
+        {
+            "medicamento_id": ["med_a", "med_a"],
+            "quantidade_atual": [5.0, 100.0],
+            "data_entrada": ["2025-12-01", "2026-01-02"],
+            "data_validade": ["2026-01-02", "2027-01-01"],
+        }
+    )
+
+    resultado = simular_impacto(previsao, real, referencia, estoque, lotes=lotes)
+
+    # Em 31/12 só o primeiro lote existia. Ele deve representar as 10 unidades
+    # do estoque inicial, em vez de ser diluído por 100 unidades futuras.
+    assert resultado.loc[0, "unidades_vencidas"] == 10.0
+
+
+def test_cria_saldo_residual_sem_vazar_lote_futuro() -> None:
+    previsao, real, referencia, estoque = _entrada([0.0, 0.0, 0.0])
+    lotes = pd.DataFrame(
+        {
+            "medicamento_id": ["med_a"],
+            "quantidade_atual": [10.0],
+            "data_entrada": ["2026-01-02"],
+            "data_validade": ["2026-01-03"],
+        }
+    )
+
+    resultado = simular_impacto(previsao, real, referencia, estoque, lotes=lotes)
+
+    # O lote só entrou depois do corte. O saldo de 31/12 continua existindo,
+    # mas recebe validade residual em vez de herdar uma validade futura.
+    assert resultado.loc[0, "unidades_vencidas"] == 0.0

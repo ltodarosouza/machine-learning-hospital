@@ -30,4 +30,4 @@ Simula, dia a dia, uma política de reposição orientada pela previsão de dema
 python src/evaluation/impacto_simulado.py
 ```
 
-Gera [`docs/arquitetura/RESULTADOS_IMPACTO_SIMULADO.md`](../../docs/arquitetura/RESULTADOS_IMPACTO_SIMULADO.md). **Limitação explícita no próprio relatório:** é simulação sobre dado sintético, não piloto real; vencimentos ainda não são estimados porque a simulação não movimenta lotes individualmente (fica para uma iteração futura).
+Gera [`docs/arquitetura/RESULTADOS_IMPACTO_SIMULADO.md`](../../docs/arquitetura/RESULTADOS_IMPACTO_SIMULADO.md). **Limitação explícita no próprio relatório:** é simulação sobre dado sintético, não piloto real. O consumo segue FEFO; como o MVP não possui histórico completo de movimentações por lote, ele reconstrói em cada corte um snapshot sintético e determinístico de lotes, cuja quantidade bate com o saldo agregado naquela data e cujas entradas e validades são temporalmente compatíveis com ela. Compras simuladas recebem validade de 365 dias.

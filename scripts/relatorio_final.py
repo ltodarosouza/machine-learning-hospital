@@ -39,7 +39,6 @@ CAMINHO_RELATORIO_IMPACTO = REPO / "docs" / "arquitetura" / "RESULTADOS_IMPACTO_
 ARQUIVO_CONSUMO_MEDICAMENTOS = REPO / "data" / "processed" / "consumo_medicamentos.csv"
 ARQUIVO_CONSUMO_DIARIO = REPO / "data" / "processed" / "consumo_diario.csv"
 ARQUIVO_MEDICAMENTOS_REF = REPO / "data" / "processed" / "medicamentos_ref.csv"
-ARQUIVO_LOTES = REPO / "data" / "processed" / "lotes.csv"
 
 
 def _limites_dos_ultimos_meses(fim_periodo: str, n_meses: int = 3) -> dict[str, tuple[str, str]]:
@@ -65,10 +64,8 @@ def gerar_relatorio_impacto() -> str:
     estoque = pd.read_csv(ARQUIVO_CONSUMO_DIARIO)
     estoque["data"] = pd.to_datetime(estoque["data"])
     referencia = pd.read_csv(ARQUIVO_MEDICAMENTOS_REF)
-    lotes = pd.read_csv(ARQUIVO_LOTES)
-
     resultados_mensais = {
-        mes: simular_periodo(dados, estoque, referencia, lotes, inicio, fim)
+        mes: simular_periodo(dados, estoque, referencia, inicio, fim)
         for mes, (inicio, fim) in _limites_dos_ultimos_meses(PERIODO_FIM).items()
     }
     relatorio = gerar_relatorio_trimestral(resultados_mensais)

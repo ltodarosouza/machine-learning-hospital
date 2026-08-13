@@ -2,37 +2,37 @@
 
 Período simulado: outubro a dezembro de 2025, com validação temporal por janelas de 7 dias.
 
-> **Limitação:** simulação sobre dados sintéticos, não piloto hospitalar. Compras emergenciais usam o preço unitário de referência. Vencimentos ainda não são estimados porque a simulação não movimenta lotes individualmente.
+> **Limitação:** simulação sobre dados sintéticos, não piloto hospitalar. Compras emergenciais usam o preço unitário de referência. O consumo segue FEFO; lotes com entrada posterior ao corte não vazam para o estoque inicial e reposições simuladas recebem validade de 365 dias. Como não há histórico completo de movimentação por lote, a composição dos lotes elegíveis é reescalada para bater com o estoque agregado no corte.
 
 ## Resultado por mês
 
 | Mês | Métrica | Baseline | Modelo ML | Redução | Redução (%) |
 |---|---|---:|---:|---:|---:|
-| 10 | episodios_ruptura | 68.00 | 90.00 | -22.00 | -32.4% |
-| 10 | unidades_em_ruptura | 2385.74 | 3480.44 | -1094.70 | -45.9% |
-| 10 | compras_emergenciais_unidades | 2385.74 | 3480.44 | -1094.70 | -45.9% |
-| 10 | custo_compras_emergenciais_reais | 5698.11 | 9601.87 | -3903.75 | -68.5% |
-| 10 | unidades_vencidas | 0.00 | 0.00 | 0.00 | — |
-| 11 | episodios_ruptura | 118.00 | 149.00 | -31.00 | -26.3% |
-| 11 | unidades_em_ruptura | 8935.10 | 9075.75 | -140.65 | -1.6% |
-| 11 | compras_emergenciais_unidades | 8935.10 | 9075.75 | -140.65 | -1.6% |
-| 11 | custo_compras_emergenciais_reais | 17728.20 | 17911.76 | -183.56 | -1.0% |
-| 11 | unidades_vencidas | 0.00 | 0.00 | 0.00 | — |
-| 12 | episodios_ruptura | 116.00 | 126.00 | -10.00 | -8.6% |
-| 12 | unidades_em_ruptura | 3671.47 | 3856.18 | -184.71 | -5.0% |
-| 12 | compras_emergenciais_unidades | 3671.47 | 3856.18 | -184.71 | -5.0% |
-| 12 | custo_compras_emergenciais_reais | 18137.86 | 18671.74 | -533.89 | -2.9% |
-| 12 | unidades_vencidas | 0.00 | 0.00 | 0.00 | — |
+| 10 | episodios_ruptura | 73.00 | 83.00 | -10.00 | -13.7% |
+| 10 | unidades_em_ruptura | 2559.52 | 3398.78 | -839.26 | -32.8% |
+| 10 | compras_emergenciais_unidades | 2559.52 | 3398.78 | -839.26 | -32.8% |
+| 10 | custo_compras_emergenciais_reais | 7672.78 | 11141.00 | -3468.22 | -45.2% |
+| 10 | unidades_vencidas | 173.77 | 173.77 | 0.00 | 0.0% |
+| 11 | episodios_ruptura | 125.00 | 151.00 | -26.00 | -20.8% |
+| 11 | unidades_em_ruptura | 9253.93 | 9312.50 | -58.57 | -0.6% |
+| 11 | compras_emergenciais_unidades | 9253.93 | 9312.50 | -58.57 | -0.6% |
+| 11 | custo_compras_emergenciais_reais | 21463.98 | 20486.21 | 977.77 | 4.6% |
+| 11 | unidades_vencidas | 421.81 | 421.81 | 0.00 | 0.0% |
+| 12 | episodios_ruptura | 116.00 | 123.00 | -7.00 | -6.0% |
+| 12 | unidades_em_ruptura | 3740.61 | 3965.32 | -224.71 | -6.0% |
+| 12 | compras_emergenciais_unidades | 3740.61 | 3965.32 | -224.71 | -6.0% |
+| 12 | custo_compras_emergenciais_reais | 18967.48 | 17817.43 | 1150.05 | 6.1% |
+| 12 | unidades_vencidas | 69.14 | 69.14 | 0.00 | 0.0% |
 
 ## Consolidado (3 meses)
 
 | Métrica | Baseline | Modelo ML | Redução | Redução (%) |
 |---|---:|---:|---:|---:|
-| compras_emergenciais_unidades | 14992.31 | 16412.38 | -1420.07 | -9.5% |
-| custo_compras_emergenciais_reais | 41564.17 | 46185.37 | -4621.20 | -11.1% |
-| episodios_ruptura | 302.00 | 365.00 | -63.00 | -20.9% |
-| unidades_em_ruptura | 14992.31 | 16412.38 | -1420.07 | -9.5% |
-| unidades_vencidas | 0.00 | 0.00 | 0.00 | — |
+| compras_emergenciais_unidades | 15554.05 | 16676.59 | -1122.54 | -7.2% |
+| custo_compras_emergenciais_reais | 48104.24 | 49444.65 | -1340.41 | -2.8% |
+| episodios_ruptura | 314.00 | 357.00 | -43.00 | -13.7% |
+| unidades_em_ruptura | 15554.05 | 16676.59 | -1122.54 | -7.2% |
+| unidades_vencidas | 664.72 | 664.72 | 0.00 | 0.0% |
 
 ## Leitura
 

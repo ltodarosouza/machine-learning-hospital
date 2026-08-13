@@ -17,6 +17,7 @@ from src.data_ingestion.gerar_dataset_sintetico import (
     fator_surto,
     gerar_consumo_diario,
     gerar_estado_surto,
+    gerar_lotes_no_corte,
     gerar_ruido_ar1,
     gerar_sinais_internos,
     montar_medicamentos_ref,
@@ -38,6 +39,24 @@ def _consumo_diario(estoque_final_a: float, estoque_final_b: float) -> pd.DataFr
             "estoque_disponivel": [estoque_final_a + 5, estoque_final_a, estoque_final_b + 5, estoque_final_b],
         }
     )
+
+
+def test_gerar_lotes_no_corte_respeita_data_e_saldo_do_estoque() -> None:
+    medicamentos = montar_medicamentos_ref()
+    corte = pd.Timestamp("2025-10-31")
+    historico = pd.DataFrame(
+        {
+            "data": [corte - pd.Timedelta(days=1), corte] * len(medicamentos),
+            "medicamento_id": medicamentos["medicamento_id"].repeat(2).to_list(),
+            "estoque_disponivel": [50.0, 80.0] * len(medicamentos),
+        }
+    )
+
+    lotes = gerar_lotes_no_corte(historico, corte)
+
+    assert (pd.to_datetime(lotes["data_entrada"]) <= corte).all()
+    assert (pd.to_datetime(lotes["data_validade"]) > corte).all()
+    assert (lotes.groupby("medicamento_id")["quantidade_atual"].sum() == 80.0).all()
 
 
 def _externos(n_dias: int = 90) -> pd.DataFrame:
