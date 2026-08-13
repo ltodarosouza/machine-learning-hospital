@@ -7,16 +7,16 @@ erro no horizonte do MVP.
 Algoritmo: XGBoost (gradient boosting), trocado de Random Forest depois de um
 experimento comparando as duas opções, mais Gradient Boosting do scikit-learn,
 sob a mesma metodologia de validação temporal sem vazamento (retreina do zero
-a cada janela, só usa ``data <= corte``). Hiperparâmetros (``max_depth=5``,
-``learning_rate=0.1``, ``n_estimators=500``) escolhidos por grid search sob a
-mesma metodologia (``scripts/tuning_xgboost.py``), re-executado depois que a
-normalização causal por medicamento (fix de vazamento de outra pessoa do
-time) mudou os valores das features. Período histórico também foi estendido
-de 2 para 4 anos (``src/utils/config.py``) para dar mais ciclos sazonais ao
-modelo. Resultado final sobre o período de teste de 2025-12-04 a 2025-12-31:
-MAE agregado de 9.43 unidades/dia. Nesse ponto XGBoost e Random Forest tunado
-ficaram muito próximos em precisão (9.43 vs 9.54) — XGBoost foi escolhido
-também pela velocidade de treino (~40x mais rápido). Detalhes em
+a cada janela, só usa ``data <= corte``). Hiperparâmetros re-tunados
+(``scripts/tuning_xgboost.py``) depois que as Issues #58-#61 mudaram a
+estrutura do gerador sintético (estados latentes de surto, causalidade dos
+atendimentos, censura de demanda por ruptura, ruído autocorrelacionado por
+medicamento) — a config anterior (``max_depth=5``) tinha sido escolhida para
+um processo gerador mais simples e ficou desatualizada. Config atual:
+``max_depth=7``, ``learning_rate=0.1``, ``n_estimators=500``. O MAE absoluto
+não é comparável ao de antes dessas 4 issues: o dataset ficou estruturalmente
+mais variável (surtos, demanda censurada), então um MAE maior aqui não é
+necessariamente um modelo pior. Detalhes em
 docs/arquitetura/RESULTADOS_MODELAGEM.md e src/models/README.md.
 """
 
@@ -106,7 +106,7 @@ def treinar_modelo(
     )
     regressor = XGBRegressor(
         n_estimators=n_estimators,
-        max_depth=5,
+        max_depth=7,
         learning_rate=0.1,
         subsample=0.8,
         colsample_bytree=0.8,

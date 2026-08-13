@@ -155,7 +155,7 @@ def gerar_relatorio_markdown(metricas: pd.DataFrame, data_inicio_teste: str, dat
         f"- **Commit:** `{_commit_atual()}`",
         f"- **Período avaliado:** {data_inicio_teste} a {data_fim_teste} (dataset completo: {PERIODO_INICIO} a {PERIODO_FIM})",
         f"- **Baseline:** média móvel de {JANELA_PADRAO_DIAS} dias (`src/models/baseline.py::prever_baseline`)",
-        "- **Modelo de ML:** XGBoost (`XGBRegressor`, `max_depth=5, learning_rate=0.1, n_estimators=500, subsample=0.8, colsample_bytree=0.8`, `random_state=42`) — ver `src/models/modelo_demanda.py::treinar_modelo`",
+        "- **Modelo de ML:** XGBoost (`XGBRegressor`, `max_depth=7, learning_rate=0.1, n_estimators=500, subsample=0.8, colsample_bytree=0.8`, `random_state=42`) — ver `src/models/modelo_demanda.py::treinar_modelo`",
         "- **Comando para regenerar este relatório:** `python src/evaluation/comparar_modelos.py`",
     ]
 
