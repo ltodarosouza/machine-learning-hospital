@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import pandas as pd
 
+from src.data_ingestion.gerar_dataset_sintetico import gerar_lotes_no_corte
 from src.evaluation.comparar_modelos import avaliar_baseline_periodo, avaliar_modelo_periodo
 
 
@@ -18,7 +19,13 @@ COLUNAS_PREVISAO = {"medicamento_id", "data_previsao", "demanda_prevista"}
 COLUNAS_REAL = {"medicamento_id", "data", "consumo_unidades"}
 COLUNAS_REFERENCIA = {"medicamento_id", "prazo_entrega_dias", "preco_unitario_reais"}
 COLUNAS_ESTOQUE = {"medicamento_id", "estoque_disponivel"}
-COLUNAS_LOTES = {"medicamento_id", "quantidade_atual", "data_validade"}
+COLUNAS_LOTES = {
+    "medicamento_id",
+    "quantidade_atual",
+    "data_entrada",
+    "data_validade",
+}
+VALIDADE_REPOSICAO_SIMULADA_DIAS = 365
 
 
 def simular_impacto(
@@ -32,9 +39,9 @@ def simular_impacto(
     """Simula rupturas, compras emergenciais e custo por medicamento.
 
     ``fator_seguranca`` é a fração da demanda prevista durante o lead time
-    usada como buffer. Vencimentos requerem movimentação por lote que ainda
-    não é produzida pelo pipeline; portanto ``unidades_vencidas`` permanece
-    zero e o relatório deixa essa limitação explícita.
+    usada como buffer. O estoque agregado no corte é a fonte de verdade para
+    quantidade; os lotes apenas repartem esse saldo por validade. Portanto,
+    lote com entrada posterior ao corte nunca aparece no estoque inicial.
     """
     _validar(previsoes, COLUNAS_PREVISAO, "previsoes")
     _validar(consumo_real, COLUNAS_REAL, "consumo_real")
@@ -53,8 +60,13 @@ def simular_impacto(
     real["consumo_unidades"] = pd.to_numeric(real["consumo_unidades"])
     referencia = medicamentos_ref[list(COLUNAS_REFERENCIA)].copy()
     inicial = estoque_inicial[list(COLUNAS_ESTOQUE)].copy()
-    lotes = pd.DataFrame(columns=sorted(COLUNAS_LOTES)) if lotes is None else lotes[list(COLUNAS_LOTES)].copy()
+    lotes = (
+        pd.DataFrame(columns=sorted(COLUNAS_LOTES))
+        if lotes is None
+        else lotes[list(COLUNAS_LOTES)].copy()
+    )
     if not lotes.empty:
+        lotes["data_entrada"] = pd.to_datetime(lotes["data_entrada"])
         lotes["data_validade"] = pd.to_datetime(lotes["data_validade"])
 
     dados = real.merge(previsao, left_on=["medicamento_id", "data"], right_on=["medicamento_id", "data_previsao"], how="inner")
@@ -68,12 +80,13 @@ def simular_impacto(
         prazo = int(serie["prazo_entrega_dias"].iloc[0])
         preco = float(serie["preco_unitario_reais"].iloc[0])
         estoque_inicial_item = float(serie["estoque_disponivel"].iloc[0])
+        data_referencia = serie["data"].iloc[0] - pd.Timedelta(days=1)
         lotes_item = lotes[lotes["medicamento_id"] == medicamento].copy()
-        if lotes_item.empty:
-            estoque_lotes = [(pd.Timestamp.max, estoque_inicial_item)]
-        else:
-            escala = estoque_inicial_item / lotes_item["quantidade_atual"].sum()
-            estoque_lotes = list(zip(lotes_item["data_validade"], lotes_item["quantidade_atual"] * escala))
+        estoque_lotes = _montar_estoque_lotes_inicial(
+            lotes_item,
+            data_referencia,
+            estoque_inicial_item,
+        )
         chegadas: dict[pd.Timestamp, float] = {}
         rupturas = emergenciais = custo_emergencial = vencidas = 0.0
         episodios = 0
@@ -81,7 +94,9 @@ def simular_impacto(
             data = dia["data"]
             chegada = chegadas.pop(data, 0.0)
             if chegada:
-                estoque_lotes.append((data + pd.Timedelta(days=365), chegada))
+                estoque_lotes.append(
+                    (data + pd.Timedelta(days=VALIDADE_REPOSICAO_SIMULADA_DIAS), chegada)
+                )
             validos = []
             for validade, quantidade in estoque_lotes:
                 if validade < data:
@@ -140,7 +155,7 @@ def gerar_relatorio_markdown(comparacao: pd.DataFrame, inicio: str, fim: str) ->
         "",
         f"Período simulado: {inicio} a {fim}.",
         "",
-        "> **Limitação:** esta é uma simulação sobre dados sintéticos, não um piloto hospitalar real. Compras emergenciais são valoradas pelo preço unitário de referência. O consumo segue FEFO (primeiro a vencer, primeiro a sair); reposições simuladas recebem validade de 365 dias.",
+        "> **Limitação:** esta é uma simulação sobre dados sintéticos, não um piloto hospitalar real. Compras emergenciais são valoradas pelo preço unitário de referência. O consumo segue FEFO (primeiro a vencer, primeiro a sair); cada corte recebe um snapshot sintético de lotes temporalmente compatível com seu estoque agregado, e reposições simuladas recebem validade de 365 dias. Não há histórico completo de movimentação por lote, portanto esse snapshot não reproduz os lotes físicos que existiriam no hospital.",
         "",
         "| Métrica | Baseline | Modelo ML | Redução | Redução (%) |",
         "|---|---:|---:|---:|---:|",
@@ -157,18 +172,18 @@ def simular_periodo(
     dados: pd.DataFrame,
     estoque: pd.DataFrame,
     referencia: pd.DataFrame,
-    lotes: pd.DataFrame,
     inicio: str,
     fim: str,
 ) -> pd.DataFrame:
-    """Executa a comparação temporal e a simulação de estoque para um período."""
+    """Executa a comparação com snapshot de lotes do próprio corte."""
     baseline = avaliar_baseline_periodo(dados, inicio, fim)
     modelo = avaliar_modelo_periodo(dados, inicio, fim)
     corte = pd.Timestamp(inicio) - pd.Timedelta(days=1)
     inicial = estoque[estoque["data"] <= corte].sort_values("data").groupby("medicamento_id").tail(1)
+    lotes_no_corte = gerar_lotes_no_corte(estoque, corte)
     return comparar_cenarios(
-        simular_impacto(baseline, dados, referencia, inicial, lotes),
-        simular_impacto(modelo, dados, referencia, inicial, lotes),
+        simular_impacto(baseline, dados, referencia, inicial, lotes_no_corte),
+        simular_impacto(modelo, dados, referencia, inicial, lotes_no_corte),
     )
 
 
@@ -179,7 +194,7 @@ def gerar_relatorio_trimestral(resultados_mensais: dict[str, pd.DataFrame]) -> s
         "",
         "Período simulado: outubro a dezembro de 2025, com validação temporal por janelas de 7 dias.",
         "",
-        "> **Limitação:** simulação sobre dados sintéticos, não piloto hospitalar. Compras emergenciais usam o preço unitário de referência. Vencimentos ainda não são estimados porque a simulação não movimenta lotes individualmente.",
+        "> **Limitação:** simulação sobre dados sintéticos, não piloto hospitalar. Compras emergenciais usam o preço unitário de referência. O consumo segue FEFO; cada corte recebe um snapshot sintético de lotes temporalmente compatível com seu estoque agregado e reposições simuladas recebem validade de 365 dias. Como não há histórico completo de movimentação por lote, esse snapshot não reproduz os lotes físicos que existiriam no hospital.",
         "",
         "## Resultado por mês",
         "",
@@ -211,9 +226,8 @@ def main() -> None:
     estoque = pd.read_csv(base / "data" / "processed" / "consumo_diario.csv")
     referencia = pd.read_csv(base / "data" / "processed" / "medicamentos_ref.csv")
     estoque["data"] = pd.to_datetime(estoque["data"])
-    lotes = pd.read_csv(base / "data" / "processed" / "lotes.csv")
     inicio, fim = "2025-12-04", "2025-12-31"
-    comparacao = simular_periodo(dados, estoque, referencia, lotes, inicio, fim)
+    comparacao = simular_periodo(dados, estoque, referencia, inicio, fim)
     relatorio = gerar_relatorio_markdown(comparacao, inicio, fim)
     destino = base / "docs" / "arquitetura" / "RESULTADOS_IMPACTO_SIMULADO.md"
     destino.write_text(relatorio, encoding="utf-8")
@@ -225,6 +239,45 @@ def _validar(df: pd.DataFrame, colunas: set[str], nome: str) -> None:
     faltantes = colunas.difference(df.columns)
     if faltantes:
         raise ValueError(f"{nome} sem colunas obrigatórias: {sorted(faltantes)}")
+
+
+def _montar_estoque_lotes_inicial(
+    lotes_item: pd.DataFrame,
+    data_referencia: pd.Timestamp,
+    estoque_inicial: float,
+) -> list[tuple[pd.Timestamp, float]]:
+    """Cria a composição de validade do estoque no corte sem usar lotes futuros.
+
+    ``lotes.csv`` é uma fotografia do fim do dataset, enquanto a simulação
+    pode começar meses antes. O saldo total do corte vem de
+    ``consumo_diario.csv``; para distribuí-lo por validade, usamos apenas os
+    lotes cuja entrada e validade já são compatíveis com aquela data e
+    preservamos sua proporção relativa. Quando não há lote elegível, o saldo
+    recebe uma validade residual longa e explícita: não é correto importar um
+    lote que só entraria no futuro para preencher essa lacuna.
+    """
+    elegiveis = lotes_item[
+        (lotes_item["data_entrada"] <= data_referencia)
+        & (lotes_item["data_validade"] >= data_referencia)
+        & (lotes_item["quantidade_atual"] > 0)
+    ].copy()
+    if elegiveis.empty:
+        return [
+            (
+                data_referencia + pd.Timedelta(days=VALIDADE_REPOSICAO_SIMULADA_DIAS),
+                estoque_inicial,
+            )
+        ]
+
+    total_elegivel = float(elegiveis["quantidade_atual"].sum())
+    escala = estoque_inicial / total_elegivel
+    return list(
+        zip(
+            elegiveis["data_validade"],
+            elegiveis["quantidade_atual"] * escala,
+            strict=True,
+        )
+    )
 
 
 if __name__ == "__main__":
