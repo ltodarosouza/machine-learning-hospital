@@ -1,0 +1,10 @@
+{
+  "aumento_relevante_maximo": 0.05,
+  "fracao_minima_janelas_com_meta": 0.75,
+  "horizonte_dias": 28,
+  "minimo_janelas": 4,
+  "reducao_minima_custo": 0.1,
+  "tolerancia_empate": 1e-09,
+  "treino_minimo_dias": 365,
+  "versao": "1.1.0-janela-longa"
+}

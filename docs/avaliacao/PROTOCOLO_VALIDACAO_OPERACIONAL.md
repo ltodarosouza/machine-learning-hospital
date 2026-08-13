@@ -174,3 +174,44 @@ adicionadas ao relatório e cobertas por teste de reconciliação; não podem
 alterar retroativamente uma decisão da versão 1.0.0. Mudanças de thresholds,
 agregação ou bloqueios exigem nova versão do protocolo e registro no histórico
 do contrato antes de observar resultados do candidato.
+
+## 13. Versão 1.1.0-janela-longa (Issue #84) — janela de avaliação estendida
+
+A Issue #78 (previsão assimétrica) descobriu uma limitação da versão 1.0.0:
+a janela de avaliação (7 dias, igual ao horizonte de previsão do MVP) é
+menor que o prazo de entrega mínimo do MVP (5 dias, ver
+`data/processed/medicamentos_ref.csv`). Um pedido feito durante a janela
+quase nunca chega a tempo de afetar a própria janela avaliada — a ruptura
+observada acaba dominada pelo estoque inicial (idêntico para qualquer
+candidato), não pela previsão sendo testada. Quantificado no relatório da
+Issue #78 (`docs/avaliacao/RESULTADOS_PREVISAO_ASSIMETRICA.md`): em 0 de 80
+pares (janela × medicamento), o custo simulado mudou entre candidato e
+modelo em produção.
+
+**O que muda:** só o comprimento da *janela de avaliação* — de 7 para 28
+dias (`ConfiguracaoProtocolo.horizonte_dias=28`, `src/evaluation/protocolo_janela_longa.py::configuracao_janela_longa`).
+Dentro de cada janela de 28 dias, o modelo continua sendo retreinado a cada
+7 dias (o contrato de horizonte de previsão do MVP não muda), mas o estoque
+e os lotes só são reconstruídos **uma vez** no início da janela — igual à
+abordagem já usada pelo relatório de impacto trimestral (Issue #17) e pelo
+relatório por medicamento/mês (Issue #76), aplicada agora também à decisão
+formal de aprovação.
+
+**O que não muda:** `gerar_janelas_backtest`, `calcular_metricas_janela` e
+`avaliar_aprovacao` são reaproveitados sem nenhuma alteração de código. Os
+limites de aprovação (redução mínima de 10%, consistência em 75% das
+janelas, aumento relevante máximo de 5%) continuam os mesmos da versão
+1.0.0 — esta versão muda a janela, não o critério.
+
+**O que não é substituído:** nenhuma decisão da versão 1.0.0 é reescrita.
+Os relatórios gerados sob 1.0.0 (incluindo a rejeição de todos os
+candidatos na Issue #78) continuam válidos como estavam — a versão
+1.1.0-janela-longa é uma revalidação adicional, não uma correção retroativa.
+
+Uso: `python src/evaluation/protocolo_janela_longa.py`. Gera duas decisões
+auditáveis em `docs/avaliacao/revalidacao_janela_longa/` — `vs_baseline/`
+(candidato contra a média móvel, vocabulário literal do protocolo) e
+`vs_modelo_atual/` (candidato contra o modelo atualmente em produção, com
+as métricas do modelo atual ocupando o papel de "baseline" que o protocolo
+exige — documentado em `papel_de_baseline_nesta_decisao` nos metadados de
+cada relatório, para não confundir com o baseline literal).
